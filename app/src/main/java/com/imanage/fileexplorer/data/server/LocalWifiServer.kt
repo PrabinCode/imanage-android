@@ -1,6 +1,7 @@
 package com.imanage.fileexplorer.data.server
 
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
@@ -33,6 +34,7 @@ object LocalWifiServer {
     private val threadPool = Executors.newCachedThreadPool()
     private var isServerActive = false
     private var currentPin = ""
+    private var appContext: Context? = null
 
     private val _serverState = MutableStateFlow(ServerState())
     val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
@@ -41,6 +43,8 @@ object LocalWifiServer {
         if (isServerActive) {
             return@withContext Result.success(_serverState.value.ipAddress)
         }
+
+        appContext = context.applicationContext
 
         try {
             val (primaryIp, allIps) = getAllLocalIpAddresses(context)
@@ -52,7 +56,6 @@ object LocalWifiServer {
 
             currentPin = (1000 + Random.nextInt(9000)).toString()
 
-            // Bind to all network interfaces (0.0.0.0) on port 8080
             val socket = ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"))
             serverSocket = socket
             isServerActive = true
@@ -95,14 +98,15 @@ object LocalWifiServer {
     private fun handleClient(socket: Socket) {
         try {
             socket.use { client ->
-                val input = BufferedReader(InputStreamReader(client.getInputStream()))
+                val rawInput = client.getInputStream()
+                val bufferedIn = BufferedInputStream(rawInput)
                 val output = client.getOutputStream()
 
-                val requestLine = input.readLine() ?: return
+                val requestLine = readLine(bufferedIn) ?: return
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) return
 
-                val method = parts[0]
+                val method = parts[0].uppercase()
                 val fullUri = parts[1]
                 val uriParts = fullUri.split("?")
                 val path = URLDecoder.decode(uriParts[0], "UTF-8")
@@ -110,13 +114,13 @@ object LocalWifiServer {
 
                 // Headers
                 val headers = mutableMapOf<String, String>()
-                var headerLine = input.readLine()
+                var headerLine = readLine(bufferedIn)
                 while (!headerLine.isNullOrEmpty()) {
                     val idx = headerLine.indexOf(":")
                     if (idx != -1) {
                         headers[headerLine.substring(0, idx).trim().lowercase()] = headerLine.substring(idx + 1).trim()
                     }
-                    headerLine = input.readLine()
+                    headerLine = readLine(bufferedIn)
                 }
 
                 val cookieHeader = headers["cookie"] ?: ""
@@ -138,6 +142,7 @@ object LocalWifiServer {
                     return
                 }
 
+                // 1. Download file
                 if (path == "/download") {
                     val filePath = queryParams["path"]
                     if (filePath != null) {
@@ -149,7 +154,59 @@ object LocalWifiServer {
                     }
                 }
 
-                // Serve Web Explorer UI
+                // 2. Upload file from PC to Phone
+                if (path == "/upload" && method == "POST") {
+                    val targetDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
+                    val targetDir = File(targetDirPath)
+                    val contentType = headers["content-type"] ?: ""
+                    val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
+
+                    if (contentType.contains("multipart/form-data")) {
+                        val boundary = contentType.substringAfter("boundary=").trim()
+                        handleMultipartUpload(bufferedIn, boundary, targetDir, contentLength)
+                    }
+
+                    val encodedDir = URLEncoder.encode(targetDir.absolutePath, "UTF-8")
+                    val response = "HTTP/1.1 302 Found\r\nLocation: /?dir=$encodedDir\r\n\r\n"
+                    output.write(response.toByteArray())
+                    output.flush()
+                    return
+                }
+
+                // 3. Create folder from PC
+                if (path == "/mkdir") {
+                    val targetDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
+                    val folderName = queryParams["name"] ?: "New Folder"
+                    val newFolder = File(targetDirPath, folderName)
+                    newFolder.mkdirs()
+
+                    val encodedDir = URLEncoder.encode(targetDirPath, "UTF-8")
+                    val response = "HTTP/1.1 302 Found\r\nLocation: /?dir=$encodedDir\r\n\r\n"
+                    output.write(response.toByteArray())
+                    output.flush()
+                    return
+                }
+
+                // 4. Delete file/folder from PC
+                if (path == "/delete") {
+                    val filePath = queryParams["path"]
+                    val returnDir = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
+                    if (filePath != null) {
+                        val file = File(filePath)
+                        if (file.exists()) {
+                            file.deleteRecursively()
+                            appContext?.let { MediaScannerConnection.scanFile(it, arrayOf(file.absolutePath), null, null) }
+                        }
+                    }
+
+                    val encodedDir = URLEncoder.encode(returnDir, "UTF-8")
+                    val response = "HTTP/1.1 302 Found\r\nLocation: /?dir=$encodedDir\r\n\r\n"
+                    output.write(response.toByteArray())
+                    output.flush()
+                    return
+                }
+
+                // 5. Serve Web Explorer UI
                 val currentDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
                 val currentDir = File(currentDirPath)
                 val targetDir = if (currentDir.exists() && currentDir.isDirectory) currentDir else Environment.getExternalStorageDirectory()
@@ -157,6 +214,80 @@ object LocalWifiServer {
                 sendHtml(output, getExplorerPage(targetDir))
             }
         } catch (e: Exception) { }
+    }
+
+    private fun handleMultipartUpload(input: InputStream, boundary: String, targetDir: File, totalLength: Long) {
+        val boundaryBytes = ("--$boundary").toByteArray(Charsets.ISO_8859_1)
+        val endBoundaryBytes = ("--$boundary--").toByteArray(Charsets.ISO_8859_1)
+
+        try {
+            var line = readLine(input)
+            while (line != null && !line.startsWith("--$boundary--")) {
+                if (line.startsWith("--$boundary")) {
+                    var filename: String? = null
+                    var header = readLine(input)
+                    while (!header.isNullOrEmpty()) {
+                        if (header.contains("filename=\"")) {
+                            filename = header.substringAfter("filename=\"").substringBefore("\"")
+                        }
+                        header = readLine(input)
+                    }
+
+                    if (!filename.isNullOrEmpty()) {
+                        val outputFile = File(targetDir, filename)
+                        FileOutputStream(outputFile).use { fos ->
+                            var prev = -1
+                            var b: Int
+                            val buf = ByteArray(64 * 1024)
+                            var bufLen = 0
+
+                            while (input.read().also { b = it } != -1) {
+                                if (prev == '\r'.code && b == '\n'.code) {
+                                    // Check next boundary
+                                    input.mark(boundaryBytes.size + 4)
+                                    val peek = ByteArray(boundaryBytes.size)
+                                    val readCount = input.read(peek)
+                                    if (readCount == boundaryBytes.size && peek.contentEquals(boundaryBytes)) {
+                                        break
+                                    }
+                                    input.reset()
+                                    fos.write('\r'.code)
+                                    fos.write('\n'.code)
+                                } else if (b != '\r'.code) {
+                                    if (prev != -1 && prev != '\r'.code) {
+                                        fos.write(prev)
+                                    }
+                                    prev = b
+                                } else {
+                                    prev = b
+                                }
+                            }
+                            if (prev != -1 && prev != '\r'.code && prev != '\n'.code) {
+                                fos.write(prev)
+                            }
+                        }
+                        appContext?.let { MediaScannerConnection.scanFile(it, arrayOf(outputFile.absolutePath), null, null) }
+                    }
+                }
+                line = readLine(input)
+            }
+        } catch (e: Exception) { }
+    }
+
+    private fun readLine(input: InputStream): String? {
+        val bout = ByteArrayOutputStream()
+        var b: Int
+        var prev = -1
+        while (input.read().also { b = it } != -1) {
+            if (prev == '\r'.code && b == '\n'.code) {
+                val bytes = bout.toByteArray()
+                return String(bytes, 0, bytes.size - 1, Charsets.ISO_8859_1)
+            }
+            bout.write(b)
+            prev = b
+        }
+        if (bout.size() == 0) return null
+        return bout.toString("ISO-8859-1")
     }
 
     private fun sendHtml(output: OutputStream, html: String) {
@@ -227,6 +358,7 @@ object LocalWifiServer {
         val sorted = files.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
 
         val parentPath = currentDir.parentFile?.absolutePath
+        val encodedCurrent = URLEncoder.encode(currentDir.absolutePath, "UTF-8")
 
         val rows = StringBuilder()
 
@@ -249,7 +381,9 @@ object LocalWifiServer {
                         <td>📁 <a href="/?dir=$encodedPath" class="folder-link">$name</a></td>
                         <td>$count items</td>
                         <td>Folder</td>
-                        <td>—</td>
+                        <td>
+                            <a href="/delete?path=$encodedPath&dir=$encodedCurrent" onclick="return confirm('Delete folder $name?')" class="del-btn">🗑️ Delete</a>
+                        </td>
                     </tr>
                 """.trimIndent())
             } else {
@@ -259,7 +393,10 @@ object LocalWifiServer {
                         <td>📄 $name</td>
                         <td>$size</td>
                         <td>${f.extension.uppercase()}</td>
-                        <td><a href="/download?path=$encodedPath" class="download-btn">⬇️ Download</a></td>
+                        <td>
+                            <a href="/download?path=$encodedPath" class="download-btn">⬇️ Download</a>
+                            <a href="/delete?path=$encodedPath&dir=$encodedCurrent" onclick="return confirm('Delete file $name?')" class="del-btn">🗑️</a>
+                        </td>
                     </tr>
                 """.trimIndent())
             }
@@ -276,15 +413,22 @@ object LocalWifiServer {
                     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 2rem; }
                     .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 1rem; margin-bottom: 1.5rem; }
                     .title { color: #38bdf8; font-size: 1.5rem; font-weight: bold; }
-                    .path-bar { background: #1e293b; padding: 0.75rem 1rem; border-radius: 8px; font-family: monospace; color: #94a3b8; word-break: break-all; margin-bottom: 1rem; }
-                    table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; }
+                    .actions-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 1.5rem; background: #1e293b; padding: 12px 16px; border-radius: 12px; }
+                    .path-bar { flex: 1; font-family: monospace; color: #94a3b8; word-break: break-all; }
+                    table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; margin-top: 1rem; }
                     th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; }
                     th { background: #0f172a; color: #94a3b8; font-size: 0.85rem; text-transform: uppercase; }
                     tr:hover { background: #334155; }
                     a { color: #38bdf8; text-decoration: none; font-weight: 500; }
                     a:hover { text-decoration: underline; }
-                    .download-btn { background: #0284c7; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; display: inline-block; }
+                    .btn { background: #0284c7; color: #fff; padding: 8px 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.9rem; text-decoration: none; display: inline-block; }
+                    .btn:hover { background: #0369a1; text-decoration: none; }
+                    .download-btn { background: #0284c7; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; display: inline-block; margin-right: 6px; }
                     .download-btn:hover { background: #0369a1; text-decoration: none; }
+                    .del-btn { background: #ef4444; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; display: inline-block; }
+                    .del-btn:hover { background: #dc2626; text-decoration: none; }
+                    .upload-form { display: inline-flex; gap: 8px; align-items: center; }
+                    input[type=file] { display: none; }
                 </style>
             </head>
             <body>
@@ -292,14 +436,29 @@ object LocalWifiServer {
                     <div class="title">📱 I Manage Wireless Transfer</div>
                     <div style="color: #4ade80; font-size: 0.9rem;">● Connected via Local Wi-Fi (Offline)</div>
                 </div>
-                <div class="path-bar">📂 ${currentDir.absolutePath}</div>
+                
+                <div class="actions-bar">
+                    <div class="path-bar">📂 ${currentDir.absolutePath}</div>
+                    
+                    <form action="/upload?dir=$encodedCurrent" method="POST" enctype="multipart/form-data" class="upload-form" id="uploadForm">
+                        <label class="btn" style="background: #10b981; cursor: pointer;">
+                            📤 Upload Files to Phone
+                            <input type="file" name="files" multiple onchange="document.getElementById('uploadForm').submit()" />
+                        </label>
+                    </form>
+
+                    <button class="btn" onclick="let n = prompt('Enter folder name:'); if(n) window.location.href='/mkdir?dir=$encodedCurrent&name=' + encodeURIComponent(n);">
+                        📁 New Folder
+                    </button>
+                </div>
+
                 <table>
                     <thead>
                         <tr>
                             <th>Name</th>
                             <th>Size</th>
                             <th>Type</th>
-                            <th>Action</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -325,15 +484,11 @@ object LocalWifiServer {
         return map
     }
 
-    /**
-     * Resolves all valid local IPv4 addresses, strictly prioritizing Wi-Fi and Hotspot over Cellular/VPN.
-     */
     fun getAllLocalIpAddresses(context: Context): Pair<String, List<String>> {
         val wifiIps = mutableListOf<String>()
         val hotspotIps = mutableListOf<String>()
         val otherLanIps = mutableListOf<String>()
 
-        // 1. Check ConnectivityManager specifically for TRANSPORT_WIFI
         try {
             val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm != null) {
@@ -360,12 +515,10 @@ object LocalWifiServer {
             }
         } catch (e: Exception) { }
 
-        // 2. Enumerate low-level network interfaces specifically for wlan / ap / softap / eth
         try {
             val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
             for (nif in interfaces) {
                 val name = nif.name.lowercase()
-                // Filter OUT cellular data interfaces (rmnet, ccmni, pdp, tun)
                 val isCellularOrVpn = name.contains("rmnet") || name.contains("ccmni") || name.contains("pdp") || name.contains("tun") || name.contains("dummy")
                 val isWifiInterface = name.contains("wlan") || name.contains("eth")
                 val isHotspotInterface = name.contains("ap") || name.contains("softap") || name.contains("rndis")
@@ -387,7 +540,6 @@ object LocalWifiServer {
             }
         } catch (e: Exception) { }
 
-        // 3. Fallback to WifiManager
         try {
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             val ipInt = wifiManager?.connectionInfo?.ipAddress ?: 0
