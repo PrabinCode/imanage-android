@@ -341,6 +341,21 @@ fun ExplorerScreen(
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Share ${item.name}"))
                                 } catch (e: Exception) { }
+                            },
+                            onOpenWithClick = {
+                                try {
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        item.file
+                                    )
+                                    val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(item.extension.lowercase()) ?: "*/*"
+                                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, mimeType)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(viewIntent, "Open ${item.name} with"))
+                                } catch (e: Exception) { }
                             }
                         )
                     }

@@ -37,6 +37,7 @@ fun FileListItem(
     onZipClick: () -> Unit,
     onInfoClick: () -> Unit,
     onShareClick: () -> Unit,
+    onOpenWithClick: () -> Unit = {},
     onTagClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -147,6 +148,10 @@ fun FileListItem(
                             onClick = { menuExpanded = false; onTagClick() }
                         )
                         if (!item.isDirectory) {
+                            DropdownMenuItem(
+                                text = { Text("Open with...") },
+                                onClick = { menuExpanded = false; onOpenWithClick() }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Share") },
                                 onClick = { menuExpanded = false; onShareClick() }
