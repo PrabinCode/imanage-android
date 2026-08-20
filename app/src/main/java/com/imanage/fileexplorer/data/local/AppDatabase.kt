@@ -18,9 +18,10 @@ import com.imanage.fileexplorer.data.local.entity.VaultEntity
         BookmarkEntity::class,
         TrashEntity::class,
         VaultEntity::class,
-        SearchHistoryEntity::class
+        SearchHistoryEntity::class,
+        com.imanage.fileexplorer.data.local.entity.FileTagEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun trashDao(): TrashDao
     abstract fun vaultDao(): VaultDao
     abstract fun searchHistoryDao(): SearchHistoryDao
+    abstract fun tagDao(): com.imanage.fileexplorer.data.local.dao.TagDao
 
     companion object {
         @Volatile

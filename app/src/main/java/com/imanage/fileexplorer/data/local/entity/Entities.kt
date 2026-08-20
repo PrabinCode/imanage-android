@@ -43,3 +43,12 @@ data class SearchHistoryEntity(
     val query: String,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "file_tags")
+data class FileTagEntity(
+    @PrimaryKey
+    val path: String,
+    val colorHex: String,
+    val tagName: String,
+    val taggedAt: Long = System.currentTimeMillis()
+)

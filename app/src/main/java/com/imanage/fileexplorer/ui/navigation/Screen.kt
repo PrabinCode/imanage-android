@@ -33,4 +33,10 @@ sealed class Screen(val route: String) {
     object ImageViewer : Screen("image_viewer?path={path}") {
         fun createRoute(path: String): String = "image_viewer?path=${Uri.encode(path)}"
     }
+
+    object VideoPlayer : Screen("video_player?path={path}") {
+        fun createRoute(path: String): String = "video_player?path=${Uri.encode(path)}"
+    }
+
+    object DuplicateCleaner : Screen("duplicate_cleaner")
 }

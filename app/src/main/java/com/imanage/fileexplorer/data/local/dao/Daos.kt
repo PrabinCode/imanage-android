@@ -63,15 +63,30 @@ interface VaultDao {
 
 @Dao
 interface SearchHistoryDao {
-    @Query("SELECT * FROM search_history ORDER BY timestamp DESC LIMIT 20")
+    @Query("SELECT * FROM search_history ORDER BY timestamp DESC LIMIT 10")
     fun getRecentSearches(): Flow<List<SearchHistoryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertSearch(search: SearchHistoryEntity)
+    suspend fun insertSearch(query: SearchHistoryEntity)
 
     @Query("DELETE FROM search_history WHERE `query` = :query")
     suspend fun deleteSearch(query: String)
 
     @Query("DELETE FROM search_history")
-    suspend fun clearSearchHistory()
+    suspend fun clearHistory()
+}
+
+@Dao
+interface TagDao {
+    @Query("SELECT * FROM file_tags ORDER BY taggedAt DESC")
+    fun getAllTags(): Flow<List<com.imanage.fileexplorer.data.local.entity.FileTagEntity>>
+
+    @Query("SELECT * FROM file_tags WHERE path = :path LIMIT 1")
+    suspend fun getTagForPath(path: String): com.imanage.fileexplorer.data.local.entity.FileTagEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTag(tag: com.imanage.fileexplorer.data.local.entity.FileTagEntity)
+
+    @Query("DELETE FROM file_tags WHERE path = :path")
+    suspend fun deleteTag(path: String)
 }

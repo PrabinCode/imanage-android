@@ -1,6 +1,8 @@
 package com.imanage.fileexplorer.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -9,6 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -249,6 +253,202 @@ fun OperationProgressDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onCancel) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun PasswordZipDialog(
+    defaultZipName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (zipName: String, password: String?) -> Unit
+) {
+    var zipName by remember { mutableStateOf(defaultZipName) }
+    var enablePassword by remember { mutableStateOf(false) }
+    var password by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Compress to ZIP", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = zipName,
+                    onValueChange = { zipName = it },
+                    label = { Text("Archive Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = enablePassword,
+                        onCheckedChange = { enablePassword = it }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Password Protect (Encryption)", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                if (enablePassword) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Enter Password") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val finalName = if (zipName.endsWith(".zip", ignoreCase = true)) zipName else "$zipName.zip"
+                    val finalPass = if (enablePassword && password.isNotEmpty()) password else null
+                    onConfirm(finalName, finalPass)
+                }
+            ) {
+                Text("Compress")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun ExtractArchiveDialog(
+    archiveName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (password: String?) -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    var hasPassword by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Extract $archiveName", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Extract contents into current directory?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = hasPassword,
+                        onCheckedChange = { hasPassword = it }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Archive is Password Protected", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                if (hasPassword) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Archive Password") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val finalPass = if (hasPassword && password.isNotEmpty()) password else null
+                    onConfirm(finalPass)
+                }
+            ) {
+                Text("Extract Here")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun AssignTagDialog(
+    fileName: String,
+    currentTagHex: String?,
+    onDismiss: () -> Unit,
+    onSelectTag: (colorHex: String, label: String) -> Unit,
+    onRemoveTag: () -> Unit
+) {
+    val tags = listOf(
+        Pair("#EF4444", "Important (Red)"),
+        Pair("#10B981", "Personal (Green)"),
+        Pair("#3B82F6", "Work (Blue)"),
+        Pair("#F97316", "Finance (Orange)"),
+        Pair("#8B5CF6", "Archive (Purple)")
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Assign Color Tag", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text("Tag: $fileName", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(12.dp))
+                tags.forEach { (hex, label) ->
+                    val color = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { Color.Red }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (currentTagHex == hex) color.copy(alpha = 0.2f) else Color.Transparent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            TextButton(
+                                onClick = { onSelectTag(hex, label.substringBefore(" (")) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(label, fontWeight = if (currentTagHex == hex) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (currentTagHex != null) {
+                TextButton(
+                    onClick = onRemoveTag,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Remove Tag")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }

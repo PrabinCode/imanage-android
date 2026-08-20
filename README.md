@@ -29,14 +29,21 @@
 You can download the ready-to-install APK directly from GitHub:
 
 * **[Download Latest APK from Releases](https://github.com/PrabinCode/imanage-android/releases)**
-* Or download the compiled APK file directly from this repository: [`IManage-v1.1.0.apk`](IManage-v1.1.0.apk)
+* Or download the compiled APK file directly from this repository: [`IManage-v1.2.0.apk`](IManage-v1.2.0.apk)
 
 ---
 
-## 🌟 Features & Highlights
+## 🌟 Key Features
 
-* 🛡️ **Strict Zero-Internet Policy:** No `android.permission.INTERNET` in manifest. Complete offline isolation with zero data leakage.
-* 🔐 **Hardware-Backed Safe Vault:** Move sensitive photos, documents, or entire folders into a hardware-encrypted vault (AES-256 via Android KeyStore) protected by Biometrics/PIN.
+* **🛡️ Hardware-Backed Safe Vault:** AES-256 GCM encrypted storage via Android KeyStore.
+* **🔥 DoD 5220.22-M File Shredder:** Multi-pass cryptographic data overwriting.
+* **🌐 Offline Wi-Fi PC Transfer:** Bidirectional file transfer with real-time progress bar.
+* **🗜️ Advanced Archive Suite:** Password-protected encrypted ZIP creation and multi-archive extraction (`.zip`, `.tar.gz`, `.tgz`).
+* **🧹 Smart Storage Duplicate Cleaner:** Two-stage SHA-256 hash comparison to reclaim storage.
+* **🎵 Built-in Offline Media Players:** Persistent background Audio Player bar and native Video Player.
+* **🏷️ Custom Color Tags:** Tag files with color badges (🔴 *Important*, 🟢 *Personal*, 🔵 *Work*, 🟠 *Finance*).
+* **📄 Native Offline PDF & Image Viewers:** Zoomable sandboxed viewers.
+* **🔐 Master PIN & Auto-Lock:** PBKDF2 (10,000 rounds) gate with configurable inactivity auto-lock. hardware-encrypted vault (AES-256 via Android KeyStore) protected by Biometrics/PIN.
 * 🌪️ **DoD Secure File Shredder:** Multi-pass overwrite algorithm (`0x00`, `0xFF`, and `SecureRandom` bytes) before unlinking files to guarantee permanent unrecoverability.
 * 🚫 **Anti-Snooping (`FLAG_SECURE`):** Blocks screenshots, screen recording, and obscures app previews in recent tasks.
 * 📊 **Storage Analyzer:** Visual disk breakdown, large files finder (>100MB), empty folder cleaner, and duplicate file detector.

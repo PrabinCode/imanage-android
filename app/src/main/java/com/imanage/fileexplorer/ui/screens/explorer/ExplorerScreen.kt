@@ -42,6 +42,9 @@ fun ExplorerScreen(
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var itemToRename by remember { mutableStateOf<FileItem?>(null) }
     var itemForInfo by remember { mutableStateOf<FileItem?>(null) }
+    var itemForTag by remember { mutableStateOf<FileItem?>(null) }
+    var itemsToZip by remember { mutableStateOf<List<FileItem>>(emptyList()) }
+    var archiveToExtract by remember { mutableStateOf<FileItem?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var itemsToDelete by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -286,23 +289,29 @@ fun ExplorerScreen(
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(state.files, key = { it.path }) { item ->
                         val isSelected = state.selectedFiles.contains(item.path)
+                        val isArchive = item.extension.equals("zip", ignoreCase = true) || item.extension.equals("tgz", ignoreCase = true) || item.name.endsWith(".tar.gz", ignoreCase = true)
+                        
                         FileListItem(
                             item = item,
                             isSelectionMode = state.isSelectionMode,
                             isSelected = isSelected,
+                            tagColorHex = state.tagsMap[item.path],
                             onClick = {
                                 if (state.isSelectionMode) {
-                                    viewModel.toggleSelection(item.path)
+                                    viewModel.toggleFileSelection(item.path)
                                 } else if (item.isDirectory) {
                                     viewModel.navigateTo(item.path, item.name)
+                                } else if (isArchive) {
+                                    archiveToExtract = item
                                 } else {
                                     onOpenFile(item.path)
                                 }
                             },
                             onLongClick = {
-                                viewModel.toggleSelection(item.path)
+                                viewModel.toggleFileSelection(item.path)
                             },
                             onRenameClick = { itemToRename = item },
+                            onTagClick = { itemForTag = item },
                             onDeleteClick = {
                                 itemsToDelete = listOf(item)
                                 showDeleteConfirmDialog = true
@@ -315,7 +324,7 @@ fun ExplorerScreen(
                                 viewModel.moveItemsToVault(listOf(item))
                             },
                             onZipClick = {
-                                viewModel.zipItems(listOf(item), "${item.name}.zip")
+                                itemsToZip = listOf(item)
                             },
                             onInfoClick = { itemForInfo = item },
                             onShareClick = {
@@ -365,6 +374,45 @@ fun ExplorerScreen(
         FileInfoDialog(
             item = item,
             onDismiss = { itemForInfo = null }
+        )
+    }
+
+    itemForTag?.let { item ->
+        AssignTagDialog(
+            fileName = item.name,
+            currentTagHex = state.tagsMap[item.path],
+            onDismiss = { itemForTag = null },
+            onSelectTag = { hex, label ->
+                viewModel.assignTag(item.path, hex, label)
+                itemForTag = null
+            },
+            onRemoveTag = {
+                viewModel.removeTag(item.path)
+                itemForTag = null
+            }
+        )
+    }
+
+    if (itemsToZip.isNotEmpty()) {
+        val defaultName = "${itemsToZip.first().file.nameWithoutExtension}.zip"
+        PasswordZipDialog(
+            defaultZipName = defaultName,
+            onDismiss = { itemsToZip = emptyList() },
+            onConfirm = { zipName, password ->
+                viewModel.zipItems(itemsToZip, zipName, password)
+                itemsToZip = emptyList()
+            }
+        )
+    }
+
+    archiveToExtract?.let { archive ->
+        ExtractArchiveDialog(
+            archiveName = archive.name,
+            onDismiss = { archiveToExtract = null },
+            onConfirm = { password ->
+                viewModel.extractArchive(archive, password)
+                archiveToExtract = null
+            }
         )
     }
 

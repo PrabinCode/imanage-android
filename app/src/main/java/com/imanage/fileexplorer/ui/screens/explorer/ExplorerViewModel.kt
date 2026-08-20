@@ -3,15 +3,19 @@ package com.imanage.fileexplorer.ui.screens.explorer
 import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.imanage.fileexplorer.IManageApp
+import com.imanage.fileexplorer.data.archive.ArchiveEngine
+import com.imanage.fileexplorer.data.crypto.ShredderEngine
 import com.imanage.fileexplorer.data.model.*
 import com.imanage.fileexplorer.data.repository.FileSystemRepository
+import com.imanage.fileexplorer.data.repository.TagRepository
 import com.imanage.fileexplorer.data.repository.TrashRepository
 import com.imanage.fileexplorer.data.repository.VaultRepository
-import com.imanage.fileexplorer.data.crypto.ShredderEngine
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 data class ClipboardState(
@@ -25,6 +29,7 @@ data class ExplorerUiState(
     val isCategoryMode: Boolean = false,
     val currentCategory: FileType? = null,
     val files: List<FileItem> = emptyList(),
+    val tagsMap: Map<String, String> = emptyMap(),
     val selectedFiles: Set<String> = emptySet(),
     val isSelectionMode: Boolean = false,
     val sortOption: SortOption = SortOption(showHiddenFiles = true),
@@ -39,11 +44,22 @@ data class ExplorerUiState(
 class ExplorerViewModel(
     private val fileSystemRepository: FileSystemRepository,
     private val trashRepository: TrashRepository,
-    private val vaultRepository: VaultRepository
+    private val vaultRepository: VaultRepository,
+    private val tagRepository: TagRepository = IManageApp.instance.tagRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ExplorerUiState())
     val uiState: StateFlow<ExplorerUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            tagRepository.getAllTags().collectLatest { tags ->
+                _uiState.value = _uiState.value.copy(
+                    tagsMap = tags.associate { it.path to it.colorHex }
+                )
+            }
+        }
+    }
 
     fun navigateTo(path: String, title: String? = null) {
         val cleanTitle = title ?: File(path).name.ifEmpty { if (path == "/") "System Root (/)" else "Storage" }
@@ -58,15 +74,52 @@ class ExplorerViewModel(
         loadDirectory(path)
     }
 
-    fun navigateToCategory(categoryType: FileType) {
+    fun navigateToCategory(type: FileType) {
+        loadCategory(type)
+    }
+
+    fun loadCategory(type: FileType) {
         _uiState.value = _uiState.value.copy(
-            title = categoryType.displayName,
+            title = type.displayName,
             isCategoryMode = true,
-            currentCategory = categoryType,
+            currentCategory = type,
             selectedFiles = emptySet(),
-            isSelectionMode = false
+            isSelectionMode = false,
+            isLoading = true,
+            errorMessage = null
         )
-        loadCategory(categoryType)
+        viewModelScope.launch {
+            try {
+                val categoryFiles = fileSystemRepository.getCategoryFiles(type)
+                _uiState.value = _uiState.value.copy(
+                    files = categoryFiles,
+                    isLoading = false
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = e.message ?: "Failed to scan ${type.displayName} files"
+                )
+            }
+        }
+    }
+
+    fun loadDirectory(path: String) {
+        _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            try {
+                val files = fileSystemRepository.getDirectoryContents(path, _uiState.value.sortOption)
+                _uiState.value = _uiState.value.copy(
+                    files = files,
+                    isLoading = false
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = e.message ?: "Failed to load directory"
+                )
+            }
+        }
     }
 
     fun loadCurrent() {
@@ -77,28 +130,6 @@ class ExplorerViewModel(
         }
     }
 
-    fun loadDirectory(path: String = _uiState.value.currentPath) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
-            val items = fileSystemRepository.getDirectoryContents(path, _uiState.value.sortOption)
-            _uiState.value = _uiState.value.copy(
-                files = items,
-                isLoading = false
-            )
-        }
-    }
-
-    fun loadCategory(categoryType: FileType) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
-            val items = fileSystemRepository.getCategoryFiles(categoryType)
-            _uiState.value = _uiState.value.copy(
-                files = items,
-                isLoading = false
-            )
-        }
-    }
-
     fun toggleSelection(path: String) {
         val current = _uiState.value.selectedFiles.toMutableSet()
         if (current.contains(path)) {
@@ -106,11 +137,14 @@ class ExplorerViewModel(
         } else {
             current.add(path)
         }
-
         _uiState.value = _uiState.value.copy(
             selectedFiles = current,
             isSelectionMode = current.isNotEmpty()
         )
+    }
+
+    fun toggleFileSelection(path: String) {
+        toggleSelection(path)
     }
 
     fun selectAll() {
@@ -128,56 +162,28 @@ class ExplorerViewModel(
         )
     }
 
-    fun updateSortOption(newOption: SortOption) {
-        _uiState.value = _uiState.value.copy(sortOption = newOption)
+    fun setSortOption(option: SortOption) {
+        _uiState.value = _uiState.value.copy(sortOption = option)
         loadCurrent()
     }
 
+    fun updateSortOption(option: SortOption) {
+        setSortOption(option)
+    }
+
     fun toggleViewMode() {
-        val next = if (_uiState.value.viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
-        _uiState.value = _uiState.value.copy(viewMode = next)
-    }
-
-    fun copySelected() {
-        val selected = _uiState.value.files.filter { _uiState.value.selectedFiles.contains(it.path) }
-        _uiState.value = _uiState.value.copy(
-            clipboard = ClipboardState(items = selected, isCut = false),
-            selectedFiles = emptySet(),
-            isSelectionMode = false
-        )
-    }
-
-    fun cutSelected() {
-        val selected = _uiState.value.files.filter { _uiState.value.selectedFiles.contains(it.path) }
-        _uiState.value = _uiState.value.copy(
-            clipboard = ClipboardState(items = selected, isCut = true),
-            selectedFiles = emptySet(),
-            isSelectionMode = false
-        )
-    }
-
-    fun pasteClipboard() {
-        val clip = _uiState.value.clipboard ?: return
-        viewModelScope.launch {
-            val targetDir = File(_uiState.value.currentPath)
-            for (item in clip.items) {
-                val destFile = File(targetDir, item.name)
-                if (clip.isCut) {
-                    fileSystemRepository.moveFile(item.file, destFile)
-                } else {
-                    fileSystemRepository.copyFile(item.file, destFile)
-                }
-            }
-            _uiState.value = _uiState.value.copy(clipboard = null)
-            loadCurrent()
-        }
+        val newMode = if (_uiState.value.viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
+        _uiState.value = _uiState.value.copy(viewMode = newMode)
     }
 
     fun createFolder(name: String) {
         viewModelScope.launch {
             val result = fileSystemRepository.createFolder(_uiState.value.currentPath, name)
-            if (result.isSuccess) {
+            result.onSuccess {
                 loadCurrent()
+                _uiState.value = _uiState.value.copy(toastMessage = "Folder created: $name")
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(toastMessage = "Error: ${it.message}")
             }
         }
     }
@@ -185,19 +191,80 @@ class ExplorerViewModel(
     fun createFile(name: String) {
         viewModelScope.launch {
             val result = fileSystemRepository.createFile(_uiState.value.currentPath, name)
-            if (result.isSuccess) {
+            result.onSuccess {
                 loadCurrent()
+                _uiState.value = _uiState.value.copy(toastMessage = "File created: $name")
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(toastMessage = "Error: ${it.message}")
             }
         }
     }
 
     fun renameFile(item: FileItem, newName: String) {
         viewModelScope.launch {
-            val dest = File(item.file.parentFile, newName)
-            val result = fileSystemRepository.moveFile(item.file, dest)
-            if (result.isSuccess) {
+            val target = File(item.file.parentFile, newName)
+            val result = fileSystemRepository.moveFile(item.file, target)
+            result.onSuccess {
                 loadCurrent()
+                _uiState.value = _uiState.value.copy(toastMessage = "Renamed to $newName")
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(toastMessage = "Rename failed: ${it.message}")
             }
+        }
+    }
+
+    fun copyItems(items: List<FileItem>) {
+        _uiState.value = _uiState.value.copy(
+            clipboard = ClipboardState(items = items, isCut = false),
+            selectedFiles = emptySet(),
+            isSelectionMode = false,
+            toastMessage = "Copied ${items.size} item(s)"
+        )
+    }
+
+    fun copySelected() {
+        val selected = _uiState.value.files.filter { _uiState.value.selectedFiles.contains(it.path) }
+        copyItems(selected)
+    }
+
+    fun cutItems(items: List<FileItem>) {
+        _uiState.value = _uiState.value.copy(
+            clipboard = ClipboardState(items = items, isCut = true),
+            selectedFiles = emptySet(),
+            isSelectionMode = false,
+            toastMessage = "Cut ${items.size} item(s)"
+        )
+    }
+
+    fun cutSelected() {
+        val selected = _uiState.value.files.filter { _uiState.value.selectedFiles.contains(it.path) }
+        cutItems(selected)
+    }
+
+    fun pasteClipboard() {
+        pasteItems()
+    }
+
+    fun pasteItems() {
+        val clip = _uiState.value.clipboard ?: return
+        viewModelScope.launch {
+            val targetDir = File(_uiState.value.currentPath)
+            var errorCount = 0
+            for (item in clip.items) {
+                val dest = File(targetDir, item.name)
+                val result = if (clip.isCut) {
+                    fileSystemRepository.moveFile(item.file, dest)
+                } else {
+                    fileSystemRepository.copyFile(item.file, dest)
+                }
+                if (result.isFailure) errorCount++
+            }
+
+            _uiState.value = _uiState.value.copy(
+                clipboard = if (clip.isCut) null else clip,
+                toastMessage = if (errorCount == 0) "Pasted successfully" else "$errorCount items failed"
+            )
+            loadCurrent()
         }
     }
 
@@ -238,13 +305,41 @@ class ExplorerViewModel(
         }
     }
 
-    fun zipItems(items: List<FileItem>, zipName: String = "Archive_${System.currentTimeMillis()}.zip") {
+    fun zipItems(items: List<FileItem>, zipName: String = "Archive.zip", password: String? = null) {
         viewModelScope.launch {
             val destDir = if (!_uiState.value.isCategoryMode) File(_uiState.value.currentPath) else Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val destZip = File(destDir, zipName)
-            fileSystemRepository.zipFiles(items.map { it.file }, destZip)
+            val result = ArchiveEngine.createZip(items.map { it.file }, destZip, password)
             clearSelection()
             loadCurrent()
+            _uiState.value = _uiState.value.copy(
+                toastMessage = if (result.isSuccess) "Created ${destZip.name}" else "ZIP Error: ${result.exceptionOrNull()?.message}"
+            )
+        }
+    }
+
+    fun extractArchive(item: FileItem, password: String? = null) {
+        viewModelScope.launch {
+            val destDir = File(_uiState.value.currentPath, item.file.nameWithoutExtension)
+            val result = ArchiveEngine.extractArchive(item.file, destDir, password)
+            loadCurrent()
+            _uiState.value = _uiState.value.copy(
+                toastMessage = if (result.isSuccess) "Extracted to ${destDir.name}" else "Extraction Error: ${result.exceptionOrNull()?.message}"
+            )
+        }
+    }
+
+    fun assignTag(path: String, colorHex: String, tagName: String) {
+        viewModelScope.launch {
+            tagRepository.setTag(path, colorHex, tagName)
+            _uiState.value = _uiState.value.copy(toastMessage = "Tagged as $tagName")
+        }
+    }
+
+    fun removeTag(path: String) {
+        viewModelScope.launch {
+            tagRepository.removeTag(path)
+            _uiState.value = _uiState.value.copy(toastMessage = "Tag removed")
         }
     }
 

@@ -6,9 +6,12 @@ import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -17,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.imanage.fileexplorer.IManageApp
+import com.imanage.fileexplorer.data.model.FileItem
 import com.imanage.fileexplorer.data.model.FileType
 import com.imanage.fileexplorer.data.security.AutoLockManager
 import com.imanage.fileexplorer.ui.screens.analyzer.StorageAnalyzerScreen
@@ -52,20 +56,34 @@ fun AppNavGraph(
         val file = File(filePath)
         val ext = file.extension.lowercase()
 
-        // 1. PDF Viewer
+        // 1. Audio Files -> In-App Audio Player
+        val audioExtensions = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "wma")
+        if (audioExtensions.contains(ext)) {
+            com.imanage.fileexplorer.data.media.AudioPlaybackManager.playTrack(FileItem.fromFile(file))
+            return
+        }
+
+        // 2. Video Files -> In-App Video Player
+        val videoExtensions = setOf("mp4", "mkv", "webm", "mov", "3gp", "avi", "flv")
+        if (videoExtensions.contains(ext)) {
+            navController.navigate(Screen.VideoPlayer.createRoute(filePath))
+            return
+        }
+
+        // 3. PDF Viewer
         if (ext == "pdf") {
             navController.navigate(Screen.PdfViewer.createRoute(filePath))
             return
         }
 
-        // 2. Image Viewer
+        // 4. Image Viewer
         val imageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
         if (imageExtensions.contains(ext)) {
             navController.navigate(Screen.ImageViewer.createRoute(filePath))
             return
         }
 
-        // 3. Text / Code Editor
+        // 5. Text / Code Editor
         val codeExtensions = FileType.CODE.extensions + setOf("txt", "log", "json", "xml", "md", "csv", "conf", "prop", "ini", "rc", "gradle", "kts", "yaml", "yml")
         if (codeExtensions.contains(ext)) {
             navController.navigate(Screen.TextEditor.createRoute(filePath))
@@ -180,7 +198,8 @@ fun AppNavGraph(
                 StorageAnalyzerScreen(
                     viewModel = analyzerVm,
                     onNavigateBack = { navController.popBackStack() },
-                    onOpenFile = { openFile(it) }
+                    onOpenFile = { openFile(it) },
+                    onLaunchDuplicateCleaner = { navController.navigate(Screen.DuplicateCleaner.route) }
                 )
             }
 
@@ -280,6 +299,38 @@ fun AppNavGraph(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
+
+            composable(
+                route = Screen.VideoPlayer.route,
+                arguments = listOf(
+                    navArgument("path") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                )
+            ) { backStackEntry ->
+                val path = backStackEntry.arguments?.getString("path") ?: ""
+                com.imanage.fileexplorer.ui.screens.viewer.VideoPlayerScreen(
+                    filePath = path,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.DuplicateCleaner.route) {
+                com.imanage.fileexplorer.ui.screens.analyzer.DuplicateCleanerScreen(
+                    trashRepository = app.trashRepository,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+        }
+
+        // Persistent Mini Audio Player Bar
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 8.dp)
+        ) {
+            com.imanage.fileexplorer.ui.components.AudioPlayerBar()
         }
 
         // Overlay PIN Lock Screen when AutoLockManager triggers

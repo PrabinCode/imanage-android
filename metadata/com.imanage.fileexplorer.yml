@@ -14,11 +14,12 @@ Description: |-
   Key Features:
   * Hardware-Backed Safe Vault: AES-256 encrypted storage via Android KeyStore.
   * DoD File Shredder: Multi-pass permanent data overwrite.
-  * Anti-Snooping: FLAG_SECURE window protection.
-  * Local Wi-Fi PC Transfer: Two-way wireless file upload and download on local Wi-Fi without cloud.
-  * Built-in Offline PDF & Image Viewers: Open sensitive documents within the app sandbox.
+  * Local Wi-Fi PC Transfer: Bidirectional wireless file upload and download on local Wi-Fi.
+  * Advanced Compression: Password-protected encrypted ZIP creation and multi-archive extraction (.zip, .tar.gz, .tgz).
+  * Smart Duplicate Cleaner: Two-stage SHA-256 hash detection to reclaim disk storage.
+  * Built-in Offline Media Viewers: Integrated background Audio Player, native Video Player, PDF Viewer, and Image Viewer.
+  * Custom Color Tags: Tag documents with color badges for instant organization.
   * Master PIN & Auto-Lock: PBKDF2 encrypted PIN with configurable auto-lock timeout.
-  * Storage Analyzer: Disk space breakdown and duplicate detection.
 
 RepoType: git
 Repo: https://github.com/PrabinCode/imanage-android.git
@@ -38,7 +39,14 @@ Builds:
     gradle:
       - yes
 
+  - versionName: 1.2.0
+    versionCode: 3
+    commit: v1.2.0
+    subdir: app
+    gradle:
+      - yes
+
 AutoUpdateMode: Version v%v
 UpdateCheckMode: Tags
-CurrentVersion: 1.1.0
-CurrentVersionCode: 2
+CurrentVersion: 1.2.0
+CurrentVersionCode: 3

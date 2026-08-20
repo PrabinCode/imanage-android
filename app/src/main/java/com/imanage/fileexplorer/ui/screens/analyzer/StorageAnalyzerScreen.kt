@@ -28,7 +28,8 @@ import com.imanage.fileexplorer.ui.components.FileListItem
 fun StorageAnalyzerScreen(
     viewModel: StorageAnalyzerViewModel,
     onNavigateBack: () -> Unit,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    onLaunchDuplicateCleaner: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -88,7 +89,7 @@ fun StorageAnalyzerScreen(
                         0 -> CategoriesTab(res)
                         1 -> LargeFilesTab(res.largeFiles, onDelete = { viewModel.deleteLargeFile(it) }, onOpenFile = onOpenFile)
                         2 -> EmptyFoldersTab(res.emptyFolders, onCleanAll = { viewModel.cleanEmptyFolders() })
-                        3 -> DuplicatesTab(res.duplicateCandidates, onOpenFile = onOpenFile)
+                        3 -> DuplicatesTab(res.duplicateCandidates, onOpenFile = onOpenFile, onLaunchCleaner = onLaunchDuplicateCleaner)
                     }
                 }
             }
@@ -271,38 +272,57 @@ private fun EmptyFoldersTab(
 @Composable
 private fun DuplicatesTab(
     duplicates: List<List<FileItem>>,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    onLaunchCleaner: () -> Unit = {}
 ) {
-    if (duplicates.isEmpty()) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Text("No duplicate files detected", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    } else {
-        LazyColumn(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Button(
+            onClick = onLaunchCleaner,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            items(duplicates) { group ->
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "Duplicate Match (${FileItem.formatBytes(group.firstOrNull()?.size ?: 0L)})",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        group.forEach { item ->
+            Icon(Icons.Default.AutoFixHigh, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Launch Interactive Duplicate Cleaner", fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (duplicates.isEmpty()) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Text("No duplicate files detected in quick scan", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(duplicates) { group ->
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "• ${item.path}",
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                modifier = Modifier.padding(vertical = 2.dp)
+                                text = "Duplicate Match (${FileItem.formatBytes(group.firstOrNull()?.size ?: 0L)})",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            group.forEach { item ->
+                                Text(
+                                    text = "• ${item.path}",
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 }

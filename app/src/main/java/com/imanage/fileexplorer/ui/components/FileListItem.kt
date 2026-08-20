@@ -1,8 +1,10 @@
 package com.imanage.fileexplorer.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
@@ -11,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -23,6 +27,7 @@ fun FileListItem(
     item: FileItem,
     isSelectionMode: Boolean,
     isSelected: Boolean,
+    tagColorHex: String? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onRenameClick: () -> Unit,
@@ -32,6 +37,7 @@ fun FileListItem(
     onZipClick: () -> Unit,
     onInfoClick: () -> Unit,
     onShareClick: () -> Unit,
+    onTagClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -75,13 +81,26 @@ fun FileListItem(
                     .weight(1f)
                     .padding(end = 8.dp)
             ) {
-                Text(
-                    text = item.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (tagColorHex != null) {
+                        val color = try { Color(android.graphics.Color.parseColor(tagColorHex)) } catch (e: Exception) { Color.Red }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -123,6 +142,10 @@ fun FileListItem(
                             text = { Text("Rename") },
                             onClick = { menuExpanded = false; onRenameClick() }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Assign Color Tag") },
+                            onClick = { menuExpanded = false; onTagClick() }
+                        )
                         if (!item.isDirectory) {
                             DropdownMenuItem(
                                 text = { Text("Share") },
@@ -134,7 +157,7 @@ fun FileListItem(
                             onClick = { menuExpanded = false; onVaultClick() }
                         )
                         DropdownMenuItem(
-                            text = { Text("Compress to ZIP") },
+                            text = { Text("Compress (ZIP)") },
                             onClick = { menuExpanded = false; onZipClick() }
                         )
                         DropdownMenuItem(
