@@ -1,0 +1,37 @@
+Categories:
+  - System
+  - Security
+License: GPL-3.0-only
+SourceCode: https://github.com/PrabinCode/imanage-android
+IssueTracker: https://github.com/PrabinCode/imanage-android/issues
+
+AutoName: I Manage
+Summary: Privacy-first, ultra-secure, 100% offline Android File Explorer
+
+Description: |-
+  I Manage is an ultra-secure, privacy-first file manager designed with a strict zero-telemetry policy.
+  
+  Key Features:
+  * 100% Offline: Zero internet permissions requested.
+  * Hardware-Backed Safe Vault: AES-256 encrypted storage via Android KeyStore.
+  * DoD File Shredder: Multi-pass permanent data overwrite.
+  * Anti-Snooping: FLAG_SECURE window protection.
+  * Local Wi-Fi PC Transfer: Direct offline file sharing on local network without cloud.
+  * Built-in Offline PDF & Image Viewers: Open sensitive documents within the app sandbox.
+  * Storage Analyzer: Disk space breakdown and duplicate detection.
+
+RepoType: git
+Repo: https://github.com/PrabinCode/imanage-android.git
+
+Builds:
+  - versionName: 1.0.0
+    versionCode: 1
+    commit: v1.0.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version v%v
+UpdateCheckMode: Tags
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1

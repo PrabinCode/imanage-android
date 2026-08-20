@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.compose.rememberNavController
+import com.imanage.fileexplorer.data.security.AutoLockManager
 import com.imanage.fileexplorer.ui.navigation.AppNavGraph
 import com.imanage.fileexplorer.ui.theme.IManageTheme
 
@@ -40,6 +41,16 @@ class MainActivity : FragmentActivity() {
                 AppNavGraph(navController = navController, app = app)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AutoLockManager.onAppForegrounded(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        AutoLockManager.onAppBackgrounded()
     }
 
     private fun checkAndRequestStoragePermissions() {

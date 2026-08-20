@@ -14,6 +14,10 @@
 
     <!-- Biometrics & Security -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- Local Wi-Fi State for Offline PC Transfer -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
     <!-- Background File Transfer Notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

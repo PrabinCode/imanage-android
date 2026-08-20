@@ -44,6 +44,7 @@ fun HomeScreen(
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToWifiShare: () -> Unit,
     onOpenFile: (String) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -172,34 +173,49 @@ fun HomeScreen(
 
             // Quick Security & Tools Hub
             item {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    HubCard(
-                        title = "Safe Vault",
-                        subtitle = "AES-256 GCM",
-                        icon = Icons.Default.Lock,
-                        iconColor = Color(0xFFEC407A),
-                        onClick = onNavigateToVault,
-                        modifier = Modifier.weight(1f)
-                    )
-                    HubCard(
-                        title = "Analyzer",
-                        subtitle = "Disk & Clean",
-                        icon = Icons.Default.PieChart,
-                        iconColor = Color(0xFF42A5F5),
-                        onClick = onNavigateToAnalyzer,
-                        modifier = Modifier.weight(1f)
-                    )
-                    HubCard(
-                        title = "Trash Bin",
-                        subtitle = "Soft Delete",
-                        icon = Icons.Outlined.Delete,
-                        iconColor = Color(0xFFFFA726),
-                        onClick = onNavigateToTrash,
-                        modifier = Modifier.weight(1f)
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        HubCard(
+                            title = "Safe Vault",
+                            subtitle = "AES-256 GCM",
+                            icon = Icons.Default.Lock,
+                            iconColor = Color(0xFFEC407A),
+                            onClick = onNavigateToVault,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HubCard(
+                            title = "Analyzer",
+                            subtitle = "Disk & Clean",
+                            icon = Icons.Default.PieChart,
+                            iconColor = Color(0xFF42A5F5),
+                            onClick = onNavigateToAnalyzer,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        HubCard(
+                            title = "Trash Bin",
+                            subtitle = "Soft Delete",
+                            icon = Icons.Outlined.Delete,
+                            iconColor = Color(0xFFFFA726),
+                            onClick = onNavigateToTrash,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HubCard(
+                            title = "PC Transfer",
+                            subtitle = "Offline Wi-Fi",
+                            icon = Icons.Default.Wifi,
+                            iconColor = Color(0xFF006874),
+                            onClick = onNavigateToWifiShare,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
 

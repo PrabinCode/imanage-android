@@ -19,8 +19,18 @@ sealed class Screen(val route: String) {
     object Trash : Screen("trash")
     object Search : Screen("search")
     object Settings : Screen("settings")
+    object WifiShare : Screen("wifi_share")
+    object PinSetup : Screen("pin_setup")
 
     object TextEditor : Screen("text_editor?path={path}") {
         fun createRoute(path: String): String = "text_editor?path=${Uri.encode(path)}"
+    }
+
+    object PdfViewer : Screen("pdf_viewer?path={path}") {
+        fun createRoute(path: String): String = "pdf_viewer?path=${Uri.encode(path)}"
+    }
+
+    object ImageViewer : Screen("image_viewer?path={path}") {
+        fun createRoute(path: String): String = "image_viewer?path=${Uri.encode(path)}"
     }
 }

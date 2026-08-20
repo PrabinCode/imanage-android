@@ -1,0 +1,9 @@
+I Manage is an open-source, privacy-first file manager for Android.
+
+Key Features:
+- 100% Offline: Zero internet permissions.
+- Hardware-backed AES-256 Vault for files and folders.
+- Multi-pass secure file shredder.
+- Built-in offline PDF and Image viewer.
+- Local offline Wi-Fi PC file transfer.
+- Storage analyzer and clean Material 3 UI.

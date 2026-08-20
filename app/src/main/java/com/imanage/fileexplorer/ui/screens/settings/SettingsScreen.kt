@@ -3,44 +3,61 @@ package com.imanage.fileexplorer.ui.screens.settings
 import android.app.Activity
 import android.content.Context
 import android.view.WindowManager
+import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.imanage.fileexplorer.data.crypto.PinCryptoHelper
+import com.imanage.fileexplorer.data.root.RootShellProvider
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToPinSetup: () -> Unit,
+    onNavigateToWifiShare: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE) }
 
     var flagSecureEnabled by remember {
         mutableStateOf(prefs.getBoolean("flag_secure", true))
     }
-    var biometricLockOnStart by remember {
-        mutableStateOf(prefs.getBoolean("biometric_startup", false))
-    }
     var shredPasses by remember {
         mutableIntStateOf(prefs.getInt("shred_passes", 3))
     }
+    var pinEnabled by remember {
+        mutableStateOf(PinCryptoHelper.isPinEnabled(context))
+    }
+    var autoLockTimeout by remember {
+        mutableIntStateOf(PinCryptoHelper.getAutoLockTimeoutSeconds(context))
+    }
+    var rootAccessEnabled by remember {
+        mutableStateOf(prefs.getBoolean("root_access_enabled", false))
+    }
+    var showTimeoutMenu by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings & Privacy", fontWeight = FontWeight.Bold) },
+                title = { Text("Settings & Security", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -51,18 +68,166 @@ fun SettingsScreen(
     ) { padding ->
         LazyColumn(
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Wireless PC Transfer
             item {
                 Text(
-                    text = "Security & Privacy",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Connectivity & Sharing",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToWifiShare() }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.Wifi, contentDescription = null, tint = Color(0xFF006874))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("PC / Wi-Fi Transfer Server", fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Transfer files to/from your PC browser over local Wi-Fi without internet or cables.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Security & Privacy
+            item {
+                Text(
+                    text = "Security & Master Lock",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Master PIN Setup
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.Pin, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Master PIN / Password", fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                if (pinEnabled) "Master PIN is active (PBKDF2 encrypted)" else "Set a 4-digit PIN for app & vault unlock fallback",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (pinEnabled) {
+                            TextButton(onClick = {
+                                PinCryptoHelper.disablePin(context)
+                                pinEnabled = false
+                                Toast.makeText(context, "PIN disabled", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Text("Remove", color = MaterialTheme.colorScheme.error)
+                            }
+                        } else {
+                            Button(onClick = onNavigateToPinSetup) {
+                                Text("Setup")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Auto-Lock Timeout
+            if (pinEnabled) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-Lock Inactivity Timeout", fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                val timeoutLabel = when (autoLockTimeout) {
+                                    0 -> "Immediately on background"
+                                    30 -> "30 seconds"
+                                    60 -> "1 minute"
+                                    300 -> "5 minutes"
+                                    900 -> "15 minutes"
+                                    else -> "$autoLockTimeout seconds"
+                                }
+                                Text("Lock after: $timeoutLabel", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Box {
+                                TextButton(onClick = { showTimeoutMenu = true }) {
+                                    Text("Change")
+                                }
+                                DropdownMenu(
+                                    expanded = showTimeoutMenu,
+                                    onDismissRequest = { showTimeoutMenu = false }
+                                ) {
+                                    val options = listOf(
+                                        0 to "Immediately",
+                                        30 to "30 seconds",
+                                        60 to "1 minute",
+                                        300 to "5 minutes",
+                                        900 to "15 minutes"
+                                    )
+                                    options.forEach { (secs, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                autoLockTimeout = secs
+                                                PinCryptoHelper.setAutoLockTimeoutSeconds(context, secs)
+                                                showTimeoutMenu = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Anti-Snooping FLAG_SECURE
@@ -82,7 +247,7 @@ fun SettingsScreen(
                             Text("Screen Obfuscation (FLAG_SECURE)", fontWeight = FontWeight.SemiBold)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "Blocks screenshots, screen recordings, and obscures app content in the recent apps task switcher.",
+                                "Blocks screenshots, screen recordings, and obscures previews in the recent apps switcher.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -107,39 +272,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Master App Lock on Startup
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Biometric Lock on Launch", fontWeight = FontWeight.SemiBold)
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                "Require fingerprint or face authentication every time the application opens.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = biometricLockOnStart,
-                            onCheckedChange = {
-                                biometricLockOnStart = it
-                                prefs.edit().putBoolean("biometric_startup", it).apply()
-                            }
-                        )
-                    }
-                }
-            }
-
             // Secure Shredding Passes
             item {
                 Card(
@@ -158,7 +290,7 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Number of times random and pattern bytes are overwritten onto disk before file deletion.",
+                            "Number of multi-pass random byte overwrites before inode deletion.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -175,16 +307,63 @@ fun SettingsScreen(
                 }
             }
 
-            // Zero Telemetry Verification
+            // Power User / Root Access
             item {
                 Text(
-                    text = "Zero Telemetry Guarantee",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Advanced & Power Users",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
 
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Elevated Root & Shizuku Access", fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Enables root shell commands and system partition access if device is rooted.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = rootAccessEnabled,
+                            onCheckedChange = { isChecked ->
+                                if (isChecked) {
+                                    scope.launch {
+                                        val hasRoot = RootShellProvider.isRootAvailable()
+                                        if (hasRoot) {
+                                            rootAccessEnabled = true
+                                            prefs.edit().putBoolean("root_access_enabled", true).apply()
+                                            Toast.makeText(context, "Root access enabled", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            rootAccessEnabled = false
+                                            Toast.makeText(context, "No root / su binary detected on this device", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                } else {
+                                    rootAccessEnabled = false
+                                    prefs.edit().putBoolean("root_access_enabled", false).apply()
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Zero Telemetry Guarantee Card
             item {
                 Card(
                     shape = RoundedCornerShape(12.dp),
@@ -195,11 +374,11 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("100% Offline App", fontWeight = FontWeight.Bold)
+                            Text("100% Offline & Open-Source (GPL-3.0)", fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "This build contains zero analytics SDKs, zero crash trackers, and does not hold android.permission.INTERNET. Your data can never physically leave this device.",
+                            "This build contains zero analytics SDKs, zero crash trackers, and zero internet permissions. Your files stay strictly on your device.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
