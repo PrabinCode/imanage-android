@@ -2,6 +2,7 @@ package com.imanage.fileexplorer.data.server
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Environment
 import com.imanage.fileexplorer.data.model.FileItem
@@ -19,6 +20,7 @@ import kotlinx.coroutines.withContext
 data class ServerState(
     val isRunning: Boolean = false,
     val ipAddress: String = "",
+    val allIpAddresses: List<String> = emptyList(),
     val port: Int = 8080,
     val sessionPin: String = "",
     val activeConnections: Int = 0
@@ -41,16 +43,16 @@ object LocalWifiServer {
         }
 
         try {
-            val detectedIp = getLocalIpAddress(context)
-            val displayIp = if (detectedIp.isNotEmpty() && detectedIp != "127.0.0.1" && detectedIp != "0.0.0.0") {
-                detectedIp
+            val (primaryIp, allIps) = getAllLocalIpAddresses(context)
+            val displayIp = if (primaryIp.isNotEmpty() && primaryIp != "127.0.0.1" && primaryIp != "0.0.0.0") {
+                primaryIp
             } else {
                 "192.168.1.x"
             }
 
             currentPin = (1000 + Random.nextInt(9000)).toString()
 
-            // Bind to all network interfaces on IO thread
+            // Bind to all network interfaces (0.0.0.0) on port 8080
             val socket = ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"))
             serverSocket = socket
             isServerActive = true
@@ -58,6 +60,7 @@ object LocalWifiServer {
             _serverState.value = ServerState(
                 isRunning = true,
                 ipAddress = displayIp,
+                allIpAddresses = allIps,
                 port = port,
                 sessionPin = currentPin
             )
@@ -322,20 +325,33 @@ object LocalWifiServer {
         return map
     }
 
-    private fun getLocalIpAddress(context: Context): String {
-        // Strategy 1: Modern Android ConnectivityManager across all active networks
+    /**
+     * Resolves all valid local IPv4 addresses, strictly prioritizing Wi-Fi and Hotspot over Cellular/VPN.
+     */
+    fun getAllLocalIpAddresses(context: Context): Pair<String, List<String>> {
+        val wifiIps = mutableListOf<String>()
+        val hotspotIps = mutableListOf<String>()
+        val otherLanIps = mutableListOf<String>()
+
+        // 1. Check ConnectivityManager specifically for TRANSPORT_WIFI
         try {
             val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm != null) {
                 for (network in cm.allNetworks) {
-                    val linkProperties = cm.getLinkProperties(network)
-                    if (linkProperties != null) {
-                        for (linkAddress in linkProperties.linkAddresses) {
-                            val address = linkAddress.address
-                            if (address is Inet4Address && !address.isLoopbackAddress) {
-                                val host = address.hostAddress
+                    val caps = cm.getNetworkCapabilities(network)
+                    val isWifi = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    val linkProps = cm.getLinkProperties(network)
+                    if (linkProps != null) {
+                        for (la in linkProps.linkAddresses) {
+                            val addr = la.address
+                            if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                                val host = addr.hostAddress
                                 if (host != null && host != "127.0.0.1" && !host.startsWith("169.254")) {
-                                    return host
+                                    if (isWifi) {
+                                        wifiIps.add(host)
+                                    } else if (!host.startsWith("10.203") && !host.startsWith("10.64")) {
+                                        otherLanIps.add(host)
+                                    }
                                 }
                             }
                         }
@@ -344,28 +360,39 @@ object LocalWifiServer {
             }
         } catch (e: Exception) { }
 
-        // Strategy 2: Low-level NetworkInterface enumeration
+        // 2. Enumerate low-level network interfaces specifically for wlan / ap / softap / eth
         try {
             val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
             for (nif in interfaces) {
-                val addrs = Collections.list(nif.inetAddresses)
-                for (addr in addrs) {
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                val name = nif.name.lowercase()
+                // Filter OUT cellular data interfaces (rmnet, ccmni, pdp, tun)
+                val isCellularOrVpn = name.contains("rmnet") || name.contains("ccmni") || name.contains("pdp") || name.contains("tun") || name.contains("dummy")
+                val isWifiInterface = name.contains("wlan") || name.contains("eth")
+                val isHotspotInterface = name.contains("ap") || name.contains("softap") || name.contains("rndis")
+
+                for (addr in Collections.list(nif.inetAddresses)) {
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
                         val host = addr.hostAddress ?: continue
                         if (host != "127.0.0.1" && !host.startsWith("169.254")) {
-                            return host
+                            if (isWifiInterface) {
+                                wifiIps.add(host)
+                            } else if (isHotspotInterface) {
+                                hotspotIps.add(host)
+                            } else if (!isCellularOrVpn) {
+                                otherLanIps.add(host)
+                            }
                         }
                     }
                 }
             }
         } catch (e: Exception) { }
 
-        // Strategy 3: WifiManager fallback
+        // 3. Fallback to WifiManager
         try {
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             val ipInt = wifiManager?.connectionInfo?.ipAddress ?: 0
             if (ipInt != 0) {
-                return String.format(
+                val ip = String.format(
                     java.util.Locale.US,
                     "%d.%d.%d.%d",
                     ipInt and 0xff,
@@ -373,9 +400,15 @@ object LocalWifiServer {
                     ipInt shr 16 and 0xff,
                     ipInt shr 24 and 0xff
                 )
+                if (ip != "0.0.0.0" && ip != "127.0.0.1") {
+                    wifiIps.add(ip)
+                }
             }
         } catch (e: Exception) { }
 
-        return "127.0.0.1"
+        val allUnique = (wifiIps + hotspotIps + otherLanIps).distinct()
+        val primary = wifiIps.firstOrNull() ?: hotspotIps.firstOrNull() ?: otherLanIps.firstOrNull() ?: "192.168.1.x"
+
+        return Pair(primary, allUnique)
     }
 }

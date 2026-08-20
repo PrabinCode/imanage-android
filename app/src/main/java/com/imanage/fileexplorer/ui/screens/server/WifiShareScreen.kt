@@ -40,8 +40,6 @@ fun WifiShareScreen(
     val scope = rememberCoroutineScope()
     val serverState by LocalWifiServer.serverState.collectAsState()
 
-    val serverUrl = if (serverState.isRunning) "http://${serverState.ipAddress}:${serverState.port}" else ""
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -93,18 +91,18 @@ fun WifiShareScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Transfer files to/from your PC or browser over your local Wi-Fi without internet or cables.",
+                text = "Connect your PC and phone to the same Wi-Fi router (or Hotspot) to transfer files without internet.",
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             AnimatedVisibility(visible = serverState.isRunning) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     // Server URL Card
@@ -116,6 +114,9 @@ fun WifiShareScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("1. Enter this URL in your PC browser:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(8.dp))
+
+                            val primaryUrl = "http://${serverState.ipAddress}:${serverState.port}"
+
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -126,7 +127,7 @@ fun WifiShareScreen(
                                     .padding(horizontal = 12.dp, vertical = 10.dp)
                             ) {
                                 Text(
-                                    text = serverUrl,
+                                    text = primaryUrl,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp,
@@ -135,12 +136,34 @@ fun WifiShareScreen(
                                 IconButton(
                                     onClick = {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("URL", serverUrl))
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("URL", primaryUrl))
                                         Toast.makeText(context, "URL Copied", Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.size(32.dp)
                                 ) {
                                     Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL", modifier = Modifier.size(18.dp))
+                                }
+                            }
+
+                            // If multiple IPs are found, list alternate options
+                            if (serverState.allIpAddresses.size > 1) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Alternate LAN addresses:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                serverState.allIpAddresses.filter { it != serverState.ipAddress }.forEach { altIp ->
+                                    val altUrl = "http://$altIp:${serverState.port}"
+                                    Text(
+                                        text = "• $altUrl",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier
+                                            .padding(vertical = 2.dp)
+                                            .clickable {
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                clipboard.setPrimaryClip(ClipData.newPlainText("URL", altUrl))
+                                                Toast.makeText(context, "URL Copied", Toast.LENGTH_SHORT).show()
+                                            }
+                                    )
                                 }
                             }
                         }
