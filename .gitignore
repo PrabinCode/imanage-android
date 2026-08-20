@@ -9,9 +9,9 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+/app/build
+app/build/
+build/
 .imanage_vault
 .imanage_trash
+IManage-v1.0.0.apk
