@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.imanage.fileexplorer.data.server.LocalWifiServer
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,6 +37,7 @@ fun WifiShareScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val serverState by LocalWifiServer.serverState.collectAsState()
 
     val serverUrl = if (serverState.isRunning) "http://${serverState.ipAddress}:${serverState.port}" else ""
@@ -191,12 +193,15 @@ fun WifiShareScreen(
             // Start / Stop Button
             Button(
                 onClick = {
-                    if (serverState.isRunning) {
-                        LocalWifiServer.stopServer()
-                    } else {
-                        val started = LocalWifiServer.startServer(context)
-                        if (!started) {
-                            Toast.makeText(context, "No active Wi-Fi or Hotspot network detected. Please connect to Wi-Fi or turn on Mobile Hotspot.", Toast.LENGTH_LONG).show()
+                    scope.launch {
+                        if (serverState.isRunning) {
+                            LocalWifiServer.stopServer()
+                        } else {
+                            val result = LocalWifiServer.startServer(context)
+                            if (result.isFailure) {
+                                val err = result.exceptionOrNull()?.message ?: "Failed to bind port 8080"
+                                Toast.makeText(context, "Server error: $err", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 },

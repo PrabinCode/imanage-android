@@ -10,9 +10,11 @@ import java.net.*
 import java.util.Collections
 import java.util.concurrent.Executors
 import kotlin.random.Random
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 data class ServerState(
     val isRunning: Boolean = false,
@@ -33,16 +35,22 @@ object LocalWifiServer {
     private val _serverState = MutableStateFlow(ServerState())
     val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
 
-    fun startServer(context: Context, port: Int = DEFAULT_PORT): Boolean {
-        if (isServerActive) return true
+    suspend fun startServer(context: Context, port: Int = DEFAULT_PORT): Result<String> = withContext(Dispatchers.IO) {
+        if (isServerActive) {
+            return@withContext Result.success(_serverState.value.ipAddress)
+        }
 
-        val detectedIp = getLocalIpAddress(context)
-        val displayIp = if (detectedIp != "127.0.0.1" && detectedIp != "0.0.0.0") detectedIp else "192.168.x.x"
+        try {
+            val detectedIp = getLocalIpAddress(context)
+            val displayIp = if (detectedIp.isNotEmpty() && detectedIp != "127.0.0.1" && detectedIp != "0.0.0.0") {
+                detectedIp
+            } else {
+                "192.168.1.x"
+            }
 
-        currentPin = (1000 + Random.nextInt(9000)).toString()
+            currentPin = (1000 + Random.nextInt(9000)).toString()
 
-        return try {
-            // Bind to 0.0.0.0 so it accepts incoming connections from all network interfaces
+            // Bind to all network interfaces on IO thread
             val socket = ServerSocket(port, 50, InetAddress.getByName("0.0.0.0"))
             serverSocket = socket
             isServerActive = true
@@ -64,14 +72,15 @@ object LocalWifiServer {
                     }
                 }
             }
-            true
+
+            Result.success(displayIp)
         } catch (e: Exception) {
             isServerActive = false
-            false
+            Result.failure(e)
         }
     }
 
-    fun stopServer() {
+    suspend fun stopServer() = withContext(Dispatchers.IO) {
         isServerActive = false
         try {
             serverSocket?.close()
@@ -313,17 +322,13 @@ object LocalWifiServer {
         return map
     }
 
-    /**
-     * Resolves the device's local IPv4 address across ConnectivityManager, NetworkInterfaces, and WifiManager.
-     */
-    fun getLocalIpAddress(context: Context): String {
-        // Strategy 1: Modern Android ConnectivityManager (API 23+)
+    private fun getLocalIpAddress(context: Context): String {
+        // Strategy 1: Modern Android ConnectivityManager across all active networks
         try {
             val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             if (cm != null) {
-                val activeNetwork = cm.activeNetwork
-                if (activeNetwork != null) {
-                    val linkProperties = cm.getLinkProperties(activeNetwork)
+                for (network in cm.allNetworks) {
+                    val linkProperties = cm.getLinkProperties(network)
                     if (linkProperties != null) {
                         for (linkAddress in linkProperties.linkAddresses) {
                             val address = linkAddress.address
