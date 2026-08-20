@@ -12,12 +12,12 @@ Description: |-
   I Manage is an ultra-secure, privacy-first file manager designed with a strict zero-telemetry policy.
   
   Key Features:
-  * 100% Offline: Zero internet permissions requested.
   * Hardware-Backed Safe Vault: AES-256 encrypted storage via Android KeyStore.
   * DoD File Shredder: Multi-pass permanent data overwrite.
   * Anti-Snooping: FLAG_SECURE window protection.
-  * Local Wi-Fi PC Transfer: Direct offline file sharing on local network without cloud.
+  * Local Wi-Fi PC Transfer: Two-way wireless file upload and download on local Wi-Fi without cloud.
   * Built-in Offline PDF & Image Viewers: Open sensitive documents within the app sandbox.
+  * Master PIN & Auto-Lock: PBKDF2 encrypted PIN with configurable auto-lock timeout.
   * Storage Analyzer: Disk space breakdown and duplicate detection.
 
 RepoType: git
@@ -31,7 +31,14 @@ Builds:
     gradle:
       - yes
 
+  - versionName: 1.1.0
+    versionCode: 2
+    commit: v1.1.0
+    subdir: app
+    gradle:
+      - yes
+
 AutoUpdateMode: Version v%v
 UpdateCheckMode: Tags
-CurrentVersion: 1.0.0
-CurrentVersionCode: 1
+CurrentVersion: 1.1.0
+CurrentVersionCode: 2

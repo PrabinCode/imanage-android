@@ -29,7 +29,7 @@
 You can download the ready-to-install APK directly from GitHub:
 
 * **[Download Latest APK from Releases](https://github.com/PrabinCode/imanage-android/releases)**
-* Or download the compiled APK file directly from this repository: [`IManage-v1.0.0.apk`](IManage-v1.0.0.apk)
+* Or download the compiled APK file directly from this repository: [`IManage-v1.1.0.apk`](IManage-v1.1.0.apk)
 
 ---
 
