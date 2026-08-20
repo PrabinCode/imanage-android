@@ -15,7 +15,8 @@
     <!-- Biometrics & Security -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
-    <!-- Local Wi-Fi State for Offline PC Transfer -->
+    <!-- Local Wi-Fi State & Socket Server for Offline PC Transfer -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
