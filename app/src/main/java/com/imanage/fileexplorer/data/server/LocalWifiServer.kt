@@ -112,7 +112,7 @@ object LocalWifiServer {
                 val path = URLDecoder.decode(uriParts[0], "UTF-8")
                 val queryParams = if (uriParts.size > 1) parseQuery(uriParts[1]) else emptyMap()
 
-                // Headers
+                // Read Headers
                 val headers = mutableMapOf<String, String>()
                 var headerLine = readLine(bufferedIn)
                 while (!headerLine.isNullOrEmpty()) {
@@ -154,21 +154,37 @@ object LocalWifiServer {
                     }
                 }
 
-                // 2. Upload file from PC to Phone
+                // 2. High-speed Direct Binary Upload from PC to Phone
                 if (path == "/upload" && method == "POST") {
                     val targetDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
+                    val rawFilename = queryParams["filename"] ?: "Uploaded_${System.currentTimeMillis()}"
+                    val filename = URLDecoder.decode(rawFilename, "UTF-8")
                     val targetDir = File(targetDirPath)
-                    val contentType = headers["content-type"] ?: ""
                     val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
 
-                    if (contentType.contains("multipart/form-data")) {
-                        val boundary = contentType.substringAfter("boundary=").trim()
-                        handleMultipartUpload(bufferedIn, boundary, targetDir, contentLength)
+                    if (contentLength > 0L) {
+                        val outputFile = File(targetDir, filename)
+                        FileOutputStream(outputFile).use { fos ->
+                            val buf = ByteArray(64 * 1024)
+                            var remaining = contentLength
+                            while (remaining > 0L) {
+                                val toRead = remaining.coerceAtMost(buf.size.toLong()).toInt()
+                                val read = bufferedIn.read(buf, 0, toRead)
+                                if (read == -1) break
+                                fos.write(buf, 0, read)
+                                remaining -= read
+                            }
+                        }
+                        appContext?.let { MediaScannerConnection.scanFile(it, arrayOf(outputFile.absolutePath), null, null) }
                     }
 
-                    val encodedDir = URLEncoder.encode(targetDir.absolutePath, "UTF-8")
-                    val response = "HTTP/1.1 302 Found\r\nLocation: /?dir=$encodedDir\r\n\r\n"
-                    output.write(response.toByteArray())
+                    val json = "{\"status\":\"ok\",\"file\":\"$filename\"}"
+                    val header = "HTTP/1.1 200 OK\r\n" +
+                            "Content-Type: application/json\r\n" +
+                            "Content-Length: ${json.length}\r\n" +
+                            "Connection: close\r\n\r\n"
+                    output.write(header.toByteArray())
+                    output.write(json.toByteArray())
                     output.flush()
                     return
                 }
@@ -212,64 +228,6 @@ object LocalWifiServer {
                 val targetDir = if (currentDir.exists() && currentDir.isDirectory) currentDir else Environment.getExternalStorageDirectory()
 
                 sendHtml(output, getExplorerPage(targetDir))
-            }
-        } catch (e: Exception) { }
-    }
-
-    private fun handleMultipartUpload(input: InputStream, boundary: String, targetDir: File, totalLength: Long) {
-        val boundaryBytes = ("--$boundary").toByteArray(Charsets.ISO_8859_1)
-        val endBoundaryBytes = ("--$boundary--").toByteArray(Charsets.ISO_8859_1)
-
-        try {
-            var line = readLine(input)
-            while (line != null && !line.startsWith("--$boundary--")) {
-                if (line.startsWith("--$boundary")) {
-                    var filename: String? = null
-                    var header = readLine(input)
-                    while (!header.isNullOrEmpty()) {
-                        if (header.contains("filename=\"")) {
-                            filename = header.substringAfter("filename=\"").substringBefore("\"")
-                        }
-                        header = readLine(input)
-                    }
-
-                    if (!filename.isNullOrEmpty()) {
-                        val outputFile = File(targetDir, filename)
-                        FileOutputStream(outputFile).use { fos ->
-                            var prev = -1
-                            var b: Int
-                            val buf = ByteArray(64 * 1024)
-                            var bufLen = 0
-
-                            while (input.read().also { b = it } != -1) {
-                                if (prev == '\r'.code && b == '\n'.code) {
-                                    // Check next boundary
-                                    input.mark(boundaryBytes.size + 4)
-                                    val peek = ByteArray(boundaryBytes.size)
-                                    val readCount = input.read(peek)
-                                    if (readCount == boundaryBytes.size && peek.contentEquals(boundaryBytes)) {
-                                        break
-                                    }
-                                    input.reset()
-                                    fos.write('\r'.code)
-                                    fos.write('\n'.code)
-                                } else if (b != '\r'.code) {
-                                    if (prev != -1 && prev != '\r'.code) {
-                                        fos.write(prev)
-                                    }
-                                    prev = b
-                                } else {
-                                    prev = b
-                                }
-                            }
-                            if (prev != -1 && prev != '\r'.code && prev != '\n'.code) {
-                                fos.write(prev)
-                            }
-                        }
-                        appContext?.let { MediaScannerConnection.scanFile(it, arrayOf(outputFile.absolutePath), null, null) }
-                    }
-                }
-                line = readLine(input)
             }
         } catch (e: Exception) { }
     }
@@ -413,7 +371,7 @@ object LocalWifiServer {
                     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 2rem; }
                     .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 1rem; margin-bottom: 1.5rem; }
                     .title { color: #38bdf8; font-size: 1.5rem; font-weight: bold; }
-                    .actions-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 1.5rem; background: #1e293b; padding: 12px 16px; border-radius: 12px; }
+                    .actions-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 1rem; background: #1e293b; padding: 12px 16px; border-radius: 12px; }
                     .path-bar { flex: 1; font-family: monospace; color: #94a3b8; word-break: break-all; }
                     table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; margin-top: 1rem; }
                     th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; }
@@ -421,13 +379,15 @@ object LocalWifiServer {
                     tr:hover { background: #334155; }
                     a { color: #38bdf8; text-decoration: none; font-weight: 500; }
                     a:hover { text-decoration: underline; }
-                    .btn { background: #0284c7; color: #fff; padding: 8px 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.9rem; text-decoration: none; display: inline-block; }
-                    .btn:hover { background: #0369a1; text-decoration: none; }
+                    .btn { background: #0284c7; color: #fff; padding: 8px 16px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.9rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+                    .btn:hover { background: #0369a1; }
                     .download-btn { background: #0284c7; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; display: inline-block; margin-right: 6px; }
                     .download-btn:hover { background: #0369a1; text-decoration: none; }
                     .del-btn { background: #ef4444; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; display: inline-block; }
                     .del-btn:hover { background: #dc2626; text-decoration: none; }
-                    .upload-form { display: inline-flex; gap: 8px; align-items: center; }
+                    #progress-container { display: none; margin-bottom: 1rem; background: #1e293b; padding: 12px 16px; border-radius: 12px; border: 1px solid #334155; }
+                    #progress-bar { width: 0%; height: 8px; background: #10b981; border-radius: 4px; transition: width 0.2s; }
+                    #progress-text { font-size: 0.85rem; color: #38bdf8; margin-top: 6px; }
                     input[type=file] { display: none; }
                 </style>
             </head>
@@ -440,16 +400,21 @@ object LocalWifiServer {
                 <div class="actions-bar">
                     <div class="path-bar">📂 ${currentDir.absolutePath}</div>
                     
-                    <form action="/upload?dir=$encodedCurrent" method="POST" enctype="multipart/form-data" class="upload-form" id="uploadForm">
-                        <label class="btn" style="background: #10b981; cursor: pointer;">
-                            📤 Upload Files to Phone
-                            <input type="file" name="files" multiple onchange="document.getElementById('uploadForm').submit()" />
-                        </label>
-                    </form>
+                    <label class="btn" style="background: #10b981;">
+                        📤 Upload Files to Phone
+                        <input type="file" id="fileInput" multiple onchange="uploadFiles(this.files)" />
+                    </label>
 
-                    <button class="btn" onclick="let n = prompt('Enter folder name:'); if(n) window.location.href='/mkdir?dir=$encodedCurrent&name=' + encodeURIComponent(n);">
+                    <button class="btn" onclick="let n = prompt('Enter new folder name:'); if(n) window.location.href='/mkdir?dir=$encodedCurrent&name=' + encodeURIComponent(n);">
                         📁 New Folder
                     </button>
+                </div>
+
+                <div id="progress-container">
+                    <div style="background: #334155; border-radius: 4px; overflow: hidden;">
+                        <div id="progress-bar"></div>
+                    </div>
+                    <div id="progress-text">Uploading...</div>
                 </div>
 
                 <table>
@@ -465,6 +430,59 @@ object LocalWifiServer {
                         $rows
                     </tbody>
                 </table>
+
+                <script>
+                    async function uploadFiles(files) {
+                        if (!files || files.length === 0) return;
+                        
+                        const progContainer = document.getElementById('progress-container');
+                        const progBar = document.getElementById('progress-bar');
+                        const progText = document.getElementById('progress-text');
+                        
+                        progContainer.style.display = 'block';
+                        
+                        for (let i = 0; i < files.length; i++) {
+                            const file = files[i];
+                            progText.innerText = 'Uploading (' + (i + 1) + '/' + files.length + '): ' + file.name;
+                            progBar.style.width = '10%';
+                            
+                            await new Promise((resolve, reject) => {
+                                const xhr = new XMLHttpRequest();
+                                const url = '/upload?dir=' + encodeURIComponent('${currentDir.absolutePath}') + '&filename=' + encodeURIComponent(file.name);
+                                
+                                xhr.open('POST', url, true);
+                                
+                                xhr.upload.onprogress = function(e) {
+                                    if (e.lengthComputable) {
+                                        const pct = Math.round((e.loaded / e.total) * 100);
+                                        progBar.style.width = pct + '%';
+                                        progText.innerText = 'Uploading ' + file.name + ' (' + pct + '%)';
+                                    }
+                                };
+                                
+                                xhr.onload = function() {
+                                    if (xhr.status === 200) {
+                                        resolve();
+                                    } else {
+                                        alert('Upload failed for: ' + file.name);
+                                        resolve();
+                                    }
+                                };
+                                
+                                xhr.onerror = function() {
+                                    alert('Network error uploading: ' + file.name);
+                                    resolve();
+                                };
+                                
+                                xhr.send(file);
+                            });
+                        }
+                        
+                        progText.innerText = 'Upload complete! Refreshing...';
+                        progBar.style.width = '100%';
+                        setTimeout(() => { window.location.reload(); }, 500);
+                    }
+                </script>
             </body>
             </html>
         """.trimIndent()
