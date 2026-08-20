@@ -1,15 +1,16 @@
 package com.imanage.fileexplorer.data.server
 
 import android.content.Context
-import android.net.wifi.WifiManager
 import android.os.Environment
 import com.imanage.fileexplorer.data.model.FileItem
 import java.io.*
-import java.net.InetAddress
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.Collections
 import java.util.concurrent.Executors
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,8 +39,8 @@ object LocalWifiServer {
     fun startServer(context: Context, port: Int = DEFAULT_PORT): Boolean {
         if (isServerActive) return true
 
-        val ip = getLocalIpAddress(context)
-        if (ip.isEmpty() || ip == "0.0.0.0") {
+        val ip = getLocalIpAddress()
+        if (ip.isEmpty() || ip == "0.0.0.0" || ip == "127.0.0.1") {
             return false
         }
 
@@ -218,7 +219,6 @@ object LocalWifiServer {
         val sorted = files.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
 
         val parentPath = currentDir.parentFile?.absolutePath
-        val encodedCurrent = URLEncoder.encode(currentDir.absolutePath, "UTF-8")
 
         val rows = StringBuilder()
 
@@ -317,24 +317,40 @@ object LocalWifiServer {
         return map
     }
 
-    private fun getLocalIpAddress(context: Context): String {
-        return try {
-            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val ipInt = wifiManager.connectionInfo.ipAddress
-            if (ipInt != 0) {
-                String.format(
-                    java.util.Locale.US,
-                    "%d.%d.%d.%d",
-                    ipInt and 0xff,
-                    ipInt shr 8 and 0xff,
-                    ipInt shr 16 and 0xff,
-                    ipInt shr 24 and 0xff
-                )
-            } else {
-                "127.0.0.1"
+    private fun getLocalIpAddress(): String {
+        try {
+            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+            // 1. Prioritize Wi-Fi and Hotspot network interfaces
+            for (nif in interfaces) {
+                if (nif.isLoopback || !nif.isUp) continue
+                val name = nif.name.lowercase()
+                if (name.contains("wlan") || name.contains("ap") || name.contains("eth") || name.contains("rndis")) {
+                    val addrs = Collections.list(nif.inetAddresses)
+                    for (addr in addrs) {
+                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                            val host = addr.hostAddress ?: continue
+                            if (host != "127.0.0.1" && !host.startsWith("169.254")) {
+                                return host
+                            }
+                        }
+                    }
+                }
             }
-        } catch (e: Exception) {
-            "127.0.0.1"
-        }
+
+            // 2. Generic fallback for any active network interface
+            for (nif in interfaces) {
+                if (nif.isLoopback || !nif.isUp) continue
+                val addrs = Collections.list(nif.inetAddresses)
+                for (addr in addrs) {
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        val host = addr.hostAddress ?: continue
+                        if (host != "127.0.0.1" && !host.startsWith("169.254")) {
+                            return host
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) { }
+        return "127.0.0.1"
     }
 }

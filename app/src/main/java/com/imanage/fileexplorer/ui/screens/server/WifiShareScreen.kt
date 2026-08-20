@@ -196,7 +196,7 @@ fun WifiShareScreen(
                     } else {
                         val started = LocalWifiServer.startServer(context)
                         if (!started) {
-                            Toast.makeText(context, "Connect to Wi-Fi or Hotspot first!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "No active Wi-Fi or Hotspot network detected. Please connect to Wi-Fi or turn on Mobile Hotspot.", Toast.LENGTH_LONG).show()
                         }
                     }
                 },
@@ -215,6 +215,19 @@ fun WifiShareScreen(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+
+            if (!serverState.isRunning) {
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = {
+                        try {
+                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
+                        } catch (e: Exception) { }
+                    }
+                ) {
+                    Text("Open Wi-Fi / Hotspot Settings")
+                }
             }
         }
     }
