@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">I Manage</string>
+    <string name="storage_permission_required">Storage access is required to manage files.</string>
+    <string name="grant_permission">Grant Access</string>
+    <string name="safe_vault">Encrypted Vault</string>
+    <string name="storage_analyzer">Storage Analyzer</string>
+    <string name="trash_bin">Trash Bin</string>
+    <string name="settings">Settings</string>
+</resources>

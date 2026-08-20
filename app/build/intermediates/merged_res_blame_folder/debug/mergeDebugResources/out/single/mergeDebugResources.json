@@ -1,0 +1,34 @@
+[
+    {
+        "merged": "com.imanage.fileexplorer.app-debug-72:/mipmap-hdpi_ic_launcher_round.xml.flat",
+        "source": "com.imanage.fileexplorer.app-main-74:/mipmap-hdpi/ic_launcher_round.xml"
+    },
+    {
+        "merged": "C:\\Users\\WATER\\.gradle\\daemon\\8.9\\com.imanage.fileexplorer.app-debug-72:\\xml_file_paths.xml.flat",
+        "source": "C:\\Users\\WATER\\.gradle\\daemon\\8.9\\com.imanage.fileexplorer.app-main-74:\\xml\\file_paths.xml"
+    },
+    {
+        "merged": "com.imanage.fileexplorer.app-debug-72:/mipmap-hdpi_ic_launcher.xml.flat",
+        "source": "com.imanage.fileexplorer.app-main-74:/mipmap-hdpi/ic_launcher.xml"
+    },
+    {
+        "merged": "com.imanage.fileexplorer.app-debug-72:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.imanage.fileexplorer.app-main-74:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "C:\\Users\\WATER\\.gradle\\daemon\\8.9\\com.imanage.fileexplorer.app-debug-72:\\xml_data_extraction_rules.xml.flat",
+        "source": "C:\\Users\\WATER\\.gradle\\daemon\\8.9\\com.imanage.fileexplorer.app-main-74:\\xml\\data_extraction_rules.xml"
+    },
+    {
+        "merged": "com.imanage.fileexplorer.app-debug-72:/drawable_ic_launcher_background.xml.flat",
+        "source": "com.imanage.fileexplorer.app-main-74:/drawable/ic_launcher_background.xml"
+    },
+    {
+        "merged": "com.imanage.fileexplorer.app-debug-72:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.imanage.fileexplorer.app-main-74:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.imanage.fileexplorer.app-debug-72:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.imanage.fileexplorer.app-main-74:/mipmap-anydpi-v26/ic_launcher.xml"
+    }
+]
