@@ -29,13 +29,15 @@
 You can download the ready-to-install APK directly from GitHub:
 
 * **[Download Latest APK from Releases](https://github.com/PrabinCode/imanage-android/releases)**
-* Or download the compiled APK file directly from this repository: [`IManage-v1.2.0.apk`](IManage-v1.2.0.apk)
+* Or download the compiled APK file directly from this repository: [`IManage-v1.3.0.apk`](IManage-v1.3.0.apk)
 
 ---
 
 ## 🌟 Key Features
 
-* **🛡️ Hardware-Backed Safe Vault:** AES-256 GCM encrypted storage via Android KeyStore.
+* **🛡️ 100% Private, Zero AI & Zero Telemetry:** No remote AI training/scraping, zero 3rd-party analytics SDKs, and zero internet permissions.
+* **✨ Feature Onboarding Tour:** Interactive first-install feature intro slider with instant permission setup.
+* **🔒 Hardware-Backed Safe Vault:** AES-256 GCM encrypted storage via Android KeyStore.
 * **🔥 DoD 5220.22-M File Shredder:** Multi-pass cryptographic data overwriting.
 * **🌐 Offline Wi-Fi PC Transfer:** Bidirectional file transfer with real-time progress bar.
 * **🗜️ Advanced Archive Suite:** Password-protected encrypted ZIP creation and multi-archive extraction (`.zip`, `.tar.gz`, `.tgz`).
