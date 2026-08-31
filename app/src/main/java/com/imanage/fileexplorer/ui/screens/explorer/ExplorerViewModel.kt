@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+import com.imanage.fileexplorer.data.local.entity.BookmarkEntity
+import com.imanage.fileexplorer.data.repository.BookmarkRepository
+
 data class ClipboardState(
     val items: List<FileItem> = emptyList(),
     val isCut: Boolean = false
@@ -30,6 +33,9 @@ data class ExplorerUiState(
     val currentCategory: FileType? = null,
     val files: List<FileItem> = emptyList(),
     val tagsMap: Map<String, String> = emptyMap(),
+    val bookmarks: List<BookmarkEntity> = emptyList(),
+    val storageVolumes: List<StorageVolumeInfo> = emptyList(),
+    val isBookmarked: Boolean = false,
     val selectedFiles: Set<String> = emptySet(),
     val isSelectionMode: Boolean = false,
     val sortOption: SortOption = SortOption(showHiddenFiles = true),
@@ -45,17 +51,30 @@ class ExplorerViewModel(
     private val fileSystemRepository: FileSystemRepository,
     private val trashRepository: TrashRepository,
     private val vaultRepository: VaultRepository,
-    private val tagRepository: TagRepository = IManageApp.instance.tagRepository
+    private val tagRepository: TagRepository = IManageApp.instance.tagRepository,
+    private val bookmarkRepository: BookmarkRepository = IManageApp.instance.bookmarkRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ExplorerUiState())
     val uiState: StateFlow<ExplorerUiState> = _uiState.asStateFlow()
 
     init {
+        val volumes = fileSystemRepository.getStorageVolumes()
+        _uiState.value = _uiState.value.copy(storageVolumes = volumes)
+
         viewModelScope.launch {
             tagRepository.getAllTags().collectLatest { tags ->
                 _uiState.value = _uiState.value.copy(
                     tagsMap = tags.associate { it.path to it.colorHex }
+                )
+            }
+        }
+        viewModelScope.launch {
+            bookmarkRepository.getAllBookmarks().collectLatest { bms ->
+                val current = _uiState.value.currentPath
+                _uiState.value = _uiState.value.copy(
+                    bookmarks = bms,
+                    isBookmarked = bms.any { it.path == current }
                 )
             }
         }
@@ -109,8 +128,10 @@ class ExplorerViewModel(
         viewModelScope.launch {
             try {
                 val files = fileSystemRepository.getDirectoryContents(path, _uiState.value.sortOption)
+                val bookmarked = _uiState.value.bookmarks.any { it.path == path }
                 _uiState.value = _uiState.value.copy(
                     files = files,
+                    isBookmarked = bookmarked,
                     isLoading = false
                 )
             } catch (e: Exception) {
@@ -340,6 +361,51 @@ class ExplorerViewModel(
         viewModelScope.launch {
             tagRepository.removeTag(path)
             _uiState.value = _uiState.value.copy(toastMessage = "Tag removed")
+        }
+    }
+
+    fun toggleBookmarkCurrentPath() {
+        val current = _uiState.value.currentPath
+        val isCurrentlyBookmarked = _uiState.value.isBookmarked
+        val title = _uiState.value.title
+        viewModelScope.launch {
+            if (isCurrentlyBookmarked) {
+                bookmarkRepository.removeBookmark(current)
+                _uiState.value = _uiState.value.copy(
+                    isBookmarked = false,
+                    toastMessage = "Removed from bookmarks"
+                )
+            } else {
+                bookmarkRepository.addBookmark(current, title, isDirectory = true)
+                _uiState.value = _uiState.value.copy(
+                    isBookmarked = true,
+                    toastMessage = "Added to bookmarks"
+                )
+            }
+        }
+    }
+
+    fun removeBookmark(path: String) {
+        viewModelScope.launch {
+            bookmarkRepository.removeBookmark(path)
+            _uiState.value = _uiState.value.copy(
+                isBookmarked = if (_uiState.value.currentPath == path) false else _uiState.value.isBookmarked,
+                toastMessage = "Bookmark removed"
+            )
+        }
+    }
+
+    fun batchRename(items: List<FileItem>, newNames: List<String>) {
+        viewModelScope.launch {
+            val (successCount, errors) = fileSystemRepository.batchRename(items, newNames)
+            clearSelection()
+            loadCurrent()
+            val msg = if (errors.isEmpty()) {
+                "Renamed $successCount items successfully"
+            } else {
+                "Renamed $successCount items (${errors.size} failed)"
+            }
+            _uiState.value = _uiState.value.copy(toastMessage = msg)
         }
     }
 

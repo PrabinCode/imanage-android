@@ -29,6 +29,7 @@ import com.imanage.fileexplorer.ui.screens.explorer.ExplorerScreen
 import com.imanage.fileexplorer.ui.screens.explorer.ExplorerViewModel
 import com.imanage.fileexplorer.ui.screens.home.HomeScreen
 import com.imanage.fileexplorer.ui.screens.home.HomeViewModel
+import com.imanage.fileexplorer.ui.screens.onboarding.OnboardingScreen
 import com.imanage.fileexplorer.ui.screens.search.SearchScreen
 import com.imanage.fileexplorer.ui.screens.search.SearchViewModel
 import com.imanage.fileexplorer.ui.screens.security.PinLockScreen
@@ -50,6 +51,9 @@ fun AppNavGraph(
     app: IManageApp
 ) {
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE) }
+    val isOnboardingCompleted = remember { prefs.getBoolean("onboarding_completed", false) }
+    val startDestination = remember { if (isOnboardingCompleted) Screen.Home.route else Screen.Onboarding.route }
     val isAppLocked by AutoLockManager.isLocked.collectAsState()
 
     fun openFile(filePath: String) {
@@ -111,8 +115,23 @@ fun AppNavGraph(
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route
+            startDestination = startDestination
         ) {
+            composable(Screen.Onboarding.route) {
+                OnboardingScreen(
+                    onFinish = {
+                        prefs.edit().putBoolean("onboarding_completed", true).apply()
+                        if (navController.previousBackStackEntry != null) {
+                            navController.popBackStack()
+                        } else {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.Onboarding.route) { inclusive = true }
+                            }
+                        }
+                    }
+                )
+            }
+
             composable(Screen.Home.route) {
                 val homeVm: HomeViewModel = viewModel(
                     factory = ViewModelFactory {
@@ -176,7 +195,15 @@ fun AppNavGraph(
                     categoryName = category.ifEmpty { null },
                     viewModel = explorerVm,
                     onNavigateBack = { navController.popBackStack() },
-                    onOpenFile = { openFile(it) }
+                    onOpenFile = { openFile(it) },
+                    onNavigateToCategory = { type ->
+                        navController.navigate(Screen.Explorer.createRoute(category = type.name))
+                    },
+                    onNavigateToVault = { navController.navigate(Screen.Vault.route) },
+                    onNavigateToAnalyzer = { navController.navigate(Screen.Analyzer.route) },
+                    onNavigateToTrash = { navController.navigate(Screen.Trash.route) },
+                    onNavigateToWifiShare = { navController.navigate(Screen.WifiShare.route) },
+                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
                 )
             }
 
@@ -234,7 +261,8 @@ fun AppNavGraph(
                 SettingsScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToPinSetup = { navController.navigate(Screen.PinSetup.route) },
-                    onNavigateToWifiShare = { navController.navigate(Screen.WifiShare.route) }
+                    onNavigateToWifiShare = { navController.navigate(Screen.WifiShare.route) },
+                    onNavigateToOnboarding = { navController.navigate(Screen.Onboarding.route) }
                 )
             }
 

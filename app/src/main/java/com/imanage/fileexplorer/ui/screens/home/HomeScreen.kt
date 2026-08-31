@@ -32,6 +32,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.imanage.fileexplorer.data.model.FileItem
 import com.imanage.fileexplorer.data.model.FileType
 import com.imanage.fileexplorer.ui.components.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,45 +75,73 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "I Manage",
-                            fontWeight = FontWeight.Black,
-                            fontSize = 22.sp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(
-                                text = "OFFLINE",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onNavigateToSearch) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
-                    }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            AppDrawerContent(
+                storageVolumes = state.storageVolumes,
+                bookmarks = state.bookmarks,
+                onNavigateToPath = onNavigateToExplorer,
+                onNavigateToCategory = onNavigateToCategory,
+                onNavigateToVault = onNavigateToVault,
+                onNavigateToAnalyzer = onNavigateToAnalyzer,
+                onNavigateToTrash = onNavigateToTrash,
+                onNavigateToWifiShare = onNavigateToWifiShare,
+                onNavigateToSettings = onNavigateToSettings,
+                onRemoveBookmark = { viewModel.removeBookmark(it) },
+                onCloseDrawer = {
+                    scope.launch { drawerState.close() }
+                }
             )
         }
-    ) { padding ->
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open Navigation Drawer")
+                        }
+                    },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "I Manage",
+                                fontWeight = FontWeight.Black,
+                                fontSize = 22.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "OFFLINE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = onNavigateToSearch) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                        IconButton(onClick = onNavigateToSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+        ) { padding ->
         LazyColumn(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -121,7 +150,7 @@ fun HomeScreen(
                 .padding(padding)
         ) {
             // Storage Permission Warning Banner
-            if (!state.permissionGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!state.isLoading && !state.permissionGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -317,6 +346,7 @@ fun HomeScreen(
                 itemToDelete = null
             }
         )
+    }
     }
 }
 

@@ -92,5 +92,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
     
+    // Archive Management (Universal Zip4j AES-256)
+    implementation(libs.zip4j)
+    
     debugImplementation(libs.androidx.ui.tooling)
 }

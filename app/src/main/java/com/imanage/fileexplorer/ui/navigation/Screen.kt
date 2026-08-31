@@ -3,6 +3,7 @@ package com.imanage.fileexplorer.ui.navigation
 import android.net.Uri
 
 sealed class Screen(val route: String) {
+    object Onboarding : Screen("onboarding")
     object Home : Screen("home")
     
     object Explorer : Screen("explorer?path={path}&title={title}&category={category}") {

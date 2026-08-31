@@ -31,7 +31,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToPinSetup: () -> Unit,
-    onNavigateToWifiShare: () -> Unit
+    onNavigateToWifiShare: () -> Unit,
+    onNavigateToOnboarding: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -358,6 +359,52 @@ fun SettingsScreen(
                                     prefs.edit().putBoolean("root_access_enabled", false).apply()
                                 }
                             }
+                        )
+                    }
+                }
+            }
+
+            // About & Help
+            item {
+                Text(
+                    text = "About & Help",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Quick Tour / App Introduction
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToOnboarding() }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Feature Tour & Introduction", fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Revisit the first-time welcome slider and explore all app features.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }

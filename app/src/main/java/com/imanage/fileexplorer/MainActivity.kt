@@ -31,8 +31,6 @@ class MainActivity : FragmentActivity() {
             )
         }
 
-        checkAndRequestStoragePermissions()
-
         val app = application as IManageApp
 
         setContent {

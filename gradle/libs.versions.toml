@@ -15,6 +15,7 @@ documentfile = "1.0.1"
 workManager = "2.10.0"
 datastore = "1.1.1"
 materialIconsExtended = "1.7.6"
+zip4j = "2.11.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -46,6 +47,9 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 # Coil for image loading
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 coil-video = { group = "io.coil-kt", name = "coil-video", version.ref = "coil" }
+
+# Archive Management
+zip4j = { group = "net.lingala.zip4j", name = "zip4j", version.ref = "zip4j" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

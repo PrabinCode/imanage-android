@@ -172,27 +172,179 @@ fun FileInfoDialog(
     item: FileItem,
     onDismiss: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    var checksums by remember { mutableStateOf<com.imanage.fileexplorer.data.crypto.FileChecksums?>(null) }
+    var isCalculatingChecksums by remember { mutableStateOf(false) }
+    var hashInput by remember { mutableStateOf("") }
+
+    LaunchedEffect(item.path) {
+        if (!item.isDirectory && item.file.exists() && item.file.canRead()) {
+            isCalculatingChecksums = true
+            val res = com.imanage.fileexplorer.data.crypto.ChecksumHelper.calculateChecksums(item.file)
+            checksums = res.getOrNull()
+            isCalculatingChecksums = false
+        }
+    }
+
+    val matchResult = remember(hashInput, checksums) {
+        val trimmed = hashInput.trim().lowercase()
+        if (trimmed.isEmpty() || checksums == null) {
+            null
+        } else {
+            val cs = checksums!!
+            when {
+                trimmed == cs.sha256.lowercase() -> "SHA-256 Match"
+                trimmed == cs.md5.lowercase() -> "MD5 Match"
+                trimmed == cs.sha1.lowercase() -> "SHA-1 Match"
+                trimmed == cs.crc32.lowercase() -> "CRC-32 Match"
+                else -> "Mismatch"
+            }
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("File Details", fontWeight = FontWeight.Bold) },
         text = {
-            Column(
+            androidx.compose.foundation.lazy.LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
             ) {
-                InfoRow(label = "Name", value = item.name)
-                InfoRow(label = "Path", value = item.path)
-                InfoRow(label = "Type", value = item.fileType.displayName)
-                InfoRow(label = "Size", value = "${item.formattedSize} (${item.size} bytes)")
-                InfoRow(label = "Last Modified", value = item.formattedDate)
-                InfoRow(label = "Readable", value = if (item.file.canRead()) "Yes" else "No")
-                InfoRow(label = "Writable", value = if (item.file.canWrite()) "Yes" else "No")
+                item { InfoRow(label = "Name", value = item.name) }
+                item { InfoRow(label = "Path", value = item.path) }
+                item { InfoRow(label = "Type", value = item.fileType.displayName) }
+                item { InfoRow(label = "Size", value = "${item.formattedSize} (${item.size} bytes)") }
+                item { InfoRow(label = "Last Modified", value = item.formattedDate) }
+                item { InfoRow(label = "Permissions", value = "Read: ${if (item.file.canRead()) "✓" else "✗"} | Write: ${if (item.file.canWrite()) "✓" else "✗"} | Exec: ${if (item.file.canExecute()) "✓" else "✗"}") }
+
+                if (!item.isDirectory) {
+                    item {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Text(
+                            text = "Cryptographic Checksums",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    if (isCalculatingChecksums) {
+                        item {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Calculating MD5, SHA-1, SHA-256...", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    } else if (checksums != null) {
+                        val cs = checksums!!
+                        item {
+                            ChecksumRow(
+                                algorithm = "SHA-256",
+                                hash = cs.sha256,
+                                onCopy = {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(cs.sha256))
+                                    android.widget.Toast.makeText(context, "SHA-256 copied", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                        item {
+                            ChecksumRow(
+                                algorithm = "MD5",
+                                hash = cs.md5,
+                                onCopy = {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(cs.md5))
+                                    android.widget.Toast.makeText(context, "MD5 copied", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                        item {
+                            ChecksumRow(
+                                algorithm = "SHA-1",
+                                hash = cs.sha1,
+                                onCopy = {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(cs.sha1))
+                                    android.widget.Toast.makeText(context, "SHA-1 copied", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                        item {
+                            ChecksumRow(
+                                algorithm = "CRC-32",
+                                hash = cs.crc32,
+                                onCopy = {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(cs.crc32))
+                                    android.widget.Toast.makeText(context, "CRC-32 copied", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+
+                        item {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = hashInput,
+                                onValueChange = { hashInput = it },
+                                label = { Text("Verify / Compare Hash") },
+                                placeholder = { Text("Paste expected hash here") },
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (matchResult != null) {
+                                val isMatch = matchResult != "Mismatch"
+                                Text(
+                                    text = if (isMatch) "✅ $matchResult" else "❌ Checksum Mismatch",
+                                    color = if (isMatch) Color(0xFF10B981) else MaterialTheme.colorScheme.error,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(onClick = onDismiss) { Text("Close") }
         }
     )
+}
+
+@Composable
+private fun ChecksumRow(
+    algorithm: String,
+    hash: String,
+    onCopy: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(algorithm, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = hash,
+                fontSize = 11.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+        IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
+            Icon(
+                imageVector = Icons.Default.ContentCopy,
+                contentDescription = "Copy $algorithm",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
 }
 
 @Composable

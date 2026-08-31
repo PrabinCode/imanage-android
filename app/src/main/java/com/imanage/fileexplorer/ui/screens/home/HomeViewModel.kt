@@ -3,10 +3,13 @@ package com.imanage.fileexplorer.ui.screens.home
 import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.imanage.fileexplorer.IManageApp
 import com.imanage.fileexplorer.data.crypto.ShredderEngine
+import com.imanage.fileexplorer.data.local.entity.BookmarkEntity
 import com.imanage.fileexplorer.data.model.FileItem
 import com.imanage.fileexplorer.data.model.FileType
 import com.imanage.fileexplorer.data.model.StorageVolumeInfo
+import com.imanage.fileexplorer.data.repository.BookmarkRepository
 import com.imanage.fileexplorer.data.repository.FileSystemRepository
 import com.imanage.fileexplorer.data.repository.TrashRepository
 import com.imanage.fileexplorer.data.repository.VaultRepository
@@ -14,24 +17,39 @@ import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
     val storageVolumes: List<StorageVolumeInfo> = emptyList(),
+    val bookmarks: List<BookmarkEntity> = emptyList(),
     val recentFiles: List<FileItem> = emptyList(),
     val isLoading: Boolean = true,
-    val permissionGranted: Boolean = false,
+    val permissionGranted: Boolean = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        true
+    },
     val toastMessage: String? = null
 )
 
 class HomeViewModel(
     private val fileSystemRepository: FileSystemRepository,
     private val trashRepository: TrashRepository,
-    private val vaultRepository: VaultRepository
+    private val vaultRepository: VaultRepository,
+    private val bookmarkRepository: BookmarkRepository = IManageApp.instance.bookmarkRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            bookmarkRepository.getAllBookmarks().collectLatest { bms ->
+                _uiState.value = _uiState.value.copy(bookmarks = bms)
+            }
+        }
+    }
 
     fun loadData() {
         viewModelScope.launch {
@@ -110,6 +128,13 @@ class HomeViewModel(
             val destZip = File(item.file.parentFile ?: Environment.getExternalStorageDirectory(), "${item.name}.zip")
             fileSystemRepository.zipFiles(listOf(item.file), destZip)
             loadData()
+        }
+    }
+
+    fun removeBookmark(path: String) {
+        viewModelScope.launch {
+            bookmarkRepository.removeBookmark(path)
+            _uiState.value = _uiState.value.copy(toastMessage = "Bookmark removed")
         }
     }
 

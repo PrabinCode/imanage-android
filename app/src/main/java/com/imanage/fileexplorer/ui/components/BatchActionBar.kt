@@ -21,6 +21,7 @@ fun BatchActionBar(
     onCopy: () -> Unit,
     onCut: () -> Unit,
     onDelete: () -> Unit,
+    onRename: () -> Unit = {},
     onVault: () -> Unit,
     onZip: () -> Unit,
     onSelectAll: () -> Unit,
@@ -66,6 +67,7 @@ fun BatchActionBar(
             ) {
                 BatchActionButton(icon = Icons.Default.ContentCopy, label = "Copy", onClick = onCopy)
                 BatchActionButton(icon = Icons.Default.ContentCut, label = "Cut", onClick = onCut)
+                BatchActionButton(icon = Icons.Default.DriveFileRenameOutline, label = "Rename", onClick = onRename)
                 BatchActionButton(icon = Icons.Outlined.Lock, label = "Vault", onClick = onVault)
                 BatchActionButton(icon = Icons.Default.FolderZip, label = "Zip", onClick = onZip)
                 BatchActionButton(

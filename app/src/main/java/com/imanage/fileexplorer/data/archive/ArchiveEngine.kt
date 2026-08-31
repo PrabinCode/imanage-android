@@ -4,24 +4,22 @@ import android.content.Context
 import android.media.MediaScannerConnection
 import java.io.*
 import java.util.zip.GZIPInputStream
-import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
-import java.util.zip.ZipOutputStream
-import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
-import javax.crypto.CipherOutputStream
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
-import javax.crypto.spec.PBEParameterSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.lingala.zip4j.ZipFile
+import net.lingala.zip4j.model.ZipParameters
+import net.lingala.zip4j.model.enums.AesKeyStrength
+import net.lingala.zip4j.model.enums.AesVersion
+import net.lingala.zip4j.model.enums.CompressionMethod
+import net.lingala.zip4j.model.enums.EncryptionMethod
 
 object ArchiveEngine {
 
     private const val BUFFER_SIZE = 64 * 1024
 
     /**
-     * Compresses a list of files/directories into a ZIP archive, optionally encrypting with password.
+     * Compresses a list of files/directories into a ZIP archive, optionally encrypting with standard AES-256.
      */
     suspend fun createZip(
         files: List<File>,
@@ -31,40 +29,29 @@ object ArchiveEngine {
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             destZip.parentFile?.mkdirs()
+            if (destZip.exists()) destZip.delete()
 
-            val fos = FileOutputStream(destZip)
-            val wrappedOut: OutputStream = if (!password.isNullOrEmpty()) {
-                val pbeCipher = getPbeCipher(password, Cipher.ENCRYPT_MODE)
-                CipherOutputStream(fos, pbeCipher)
+            val zipFile = if (!password.isNullOrEmpty()) {
+                ZipFile(destZip, password.toCharArray())
             } else {
-                fos
+                ZipFile(destZip)
             }
 
-            ZipOutputStream(BufferedOutputStream(wrappedOut)).use { zos ->
-                fun addEntry(file: File, baseName: String) {
-                    if (file.isDirectory) {
-                        val children = file.listFiles()
-                        if (children.isNullOrEmpty()) {
-                            val entry = ZipEntry("$baseName/")
-                            zos.putNextEntry(entry)
-                            zos.closeEntry()
-                        } else {
-                            children.forEach { child ->
-                                addEntry(child, "$baseName/${child.name}")
-                            }
-                        }
-                    } else {
-                        val entry = ZipEntry(baseName)
-                        zos.putNextEntry(entry)
-                        FileInputStream(file).use { fis ->
-                            fis.copyTo(zos, BUFFER_SIZE)
-                        }
-                        zos.closeEntry()
-                    }
+            val zipParameters = ZipParameters().apply {
+                compressionMethod = CompressionMethod.DEFLATE
+                if (!password.isNullOrEmpty()) {
+                    isEncryptFiles = true
+                    encryptionMethod = EncryptionMethod.AES
+                    aesKeyStrength = AesKeyStrength.KEY_STRENGTH_256
+                    aesVersion = AesVersion.TWO
                 }
+            }
 
-                for (f in files) {
-                    addEntry(f, f.name)
+            for (f in files) {
+                if (f.isDirectory) {
+                    zipFile.addFolder(f, zipParameters)
+                } else if (f.isFile) {
+                    zipFile.addFile(f, zipParameters)
                 }
             }
 
@@ -93,11 +80,13 @@ object ArchiveEngine {
                 ext.endsWith(".tar.gz") || ext.endsWith(".tgz") -> {
                     extractTarGz(archiveFile, destDir)
                 }
-                ext.endsWith(".zip") -> {
-                    extractZip(archiveFile, destDir, password)
-                }
                 else -> {
-                    extractZip(archiveFile, destDir, password)
+                    val zipFile = if (!password.isNullOrEmpty()) {
+                        ZipFile(archiveFile, password.toCharArray())
+                    } else {
+                        ZipFile(archiveFile)
+                    }
+                    zipFile.extractAll(destDir.absolutePath)
                 }
             }
 
@@ -108,36 +97,8 @@ object ArchiveEngine {
         }
     }
 
-    private fun extractZip(zipFile: File, destDir: File, password: String?) {
-        val fis = FileInputStream(zipFile)
-        val wrappedIn: InputStream = if (!password.isNullOrEmpty()) {
-            val pbeCipher = getPbeCipher(password, Cipher.DECRYPT_MODE)
-            CipherInputStream(fis, pbeCipher)
-        } else {
-            fis
-        }
-
-        ZipInputStream(BufferedInputStream(wrappedIn)).use { zis ->
-            var entry = zis.nextEntry
-            while (entry != null) {
-                val newFile = File(destDir, entry.name)
-                if (entry.isDirectory) {
-                    newFile.mkdirs()
-                } else {
-                    newFile.parentFile?.mkdirs()
-                    FileOutputStream(newFile).use { fos ->
-                        zis.copyTo(fos, BUFFER_SIZE)
-                    }
-                }
-                zis.closeEntry()
-                entry = zis.nextEntry
-            }
-        }
-    }
-
     private fun extractTarGz(tarGzFile: File, destDir: File) {
         GZIPInputStream(FileInputStream(tarGzFile)).use { gzis ->
-            // Extract standard tar stream chunks
             val buf = ByteArray(BUFFER_SIZE)
             var read: Int
             val tempTar = File(destDir, "extracted.tar")
@@ -147,17 +108,5 @@ object ArchiveEngine {
                 }
             }
         }
-    }
-
-    private fun getPbeCipher(password: String, mode: Int): Cipher {
-        val salt = byteArrayOf(0x49, 0x4d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x20) // "IManage "
-        val count = 1000
-        val pbeParamSpec = PBEParameterSpec(salt, count)
-        val pbeKeySpec = PBEKeySpec(password.toCharArray())
-        val keyFac = SecretKeyFactory.getInstance("PBEWithMD5AndDES")
-        val pbeKey = keyFac.generateSecret(pbeKeySpec)
-        val pbeCipher = Cipher.getInstance("PBEWithMD5AndDES")
-        pbeCipher.init(mode, pbeKey, pbeParamSpec)
-        return pbeCipher
     }
 }

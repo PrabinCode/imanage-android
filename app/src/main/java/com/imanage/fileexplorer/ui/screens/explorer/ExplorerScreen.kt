@@ -25,6 +25,7 @@ import androidx.core.content.FileProvider
 import com.imanage.fileexplorer.data.model.*
 import com.imanage.fileexplorer.ui.components.*
 import java.io.File
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,10 +35,18 @@ fun ExplorerScreen(
     categoryName: String? = null,
     viewModel: ExplorerViewModel,
     onNavigateBack: () -> Unit,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    onNavigateToCategory: (FileType) -> Unit = {},
+    onNavigateToVault: () -> Unit = {},
+    onNavigateToAnalyzer: () -> Unit = {},
+    onNavigateToTrash: () -> Unit = {},
+    onNavigateToWifiShare: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var itemToRename by remember { mutableStateOf<FileItem?>(null) }
@@ -46,6 +55,7 @@ fun ExplorerScreen(
     var itemsToZip by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var archiveToExtract by remember { mutableStateOf<FileItem?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showBatchRenameDialog by remember { mutableStateOf(false) }
     var itemsToDelete by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var showSortMenu by remember { mutableStateOf(false) }
 
@@ -82,125 +92,160 @@ fun ExplorerScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = if (state.isSelectionMode) "${state.selectedFiles.size} selected" else state.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (!state.isCategoryMode && state.currentPath.isNotEmpty()) {
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            AppDrawerContent(
+                storageVolumes = state.storageVolumes,
+                bookmarks = state.bookmarks,
+                onNavigateToPath = { path, heading ->
+                    viewModel.navigateTo(path, heading)
+                },
+                onNavigateToCategory = onNavigateToCategory,
+                onNavigateToVault = onNavigateToVault,
+                onNavigateToAnalyzer = onNavigateToAnalyzer,
+                onNavigateToTrash = onNavigateToTrash,
+                onNavigateToWifiShare = onNavigateToWifiShare,
+                onNavigateToSettings = onNavigateToSettings,
+                onRemoveBookmark = { viewModel.removeBookmark(it) },
+                onCloseDrawer = {
+                    scope.launch { drawerState.close() }
+                }
+            )
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
                             Text(
-                                text = state.currentPath,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = if (state.isSelectionMode) "${state.selectedFiles.size} selected" else state.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (!state.isCategoryMode && state.currentPath.isNotEmpty()) {
+                                Text(
+                                    text = state.currentPath,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                if (state.isSelectionMode) {
+                                    viewModel.clearSelection()
+                                } else if (state.isCategoryMode) {
+                                    onNavigateBack()
+                                } else {
+                                    val parent = File(state.currentPath).parentFile
+                                    if (parent != null && parent.exists() && state.currentPath != "/" && state.currentPath != "/storage/emulated/0") {
+                                        viewModel.navigateTo(parent.absolutePath, parent.name.ifEmpty { "Root" })
+                                    } else {
+                                        onNavigateBack()
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        if (!state.isCategoryMode && state.currentPath.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.toggleBookmarkCurrentPath() }) {
+                                Icon(
+                                    imageVector = if (state.isBookmarked) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
+                                    contentDescription = "Bookmark folder",
+                                    tint = if (state.isBookmarked) androidx.compose.ui.graphics.Color(0xFFF59E0B) else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                        IconButton(onClick = { viewModel.toggleViewMode() }) {
+                            Icon(
+                                imageVector = if (state.viewMode == ViewMode.LIST) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
+                                contentDescription = "Toggle View"
+                            )
+                        }
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                        }
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open Drawer")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Name (A to Z)") },
+                                onClick = {
+                                    showSortMenu = false
+                                    viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.NAME, order = SortOrder.ASCENDING))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Date (Newest First)") },
+                                onClick = {
+                                    showSortMenu = false
+                                    viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.DATE, order = SortOrder.DESCENDING))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Size (Largest First)") },
+                                onClick = {
+                                    showSortMenu = false
+                                    viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.SIZE, order = SortOrder.DESCENDING))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Type") },
+                                onClick = {
+                                    showSortMenu = false
+                                    viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.TYPE, order = SortOrder.ASCENDING))
+                                }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (state.sortOption.showHiddenFiles) "Hide Hidden Files" else "Show Hidden Files")
+                                },
+                                onClick = {
+                                    showSortMenu = false
+                                    viewModel.updateSortOption(state.sortOption.copy(showHiddenFiles = !state.sortOption.showHiddenFiles))
+                                }
                             )
                         }
                     }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            if (state.isSelectionMode) {
-                                viewModel.clearSelection()
-                            } else if (state.isCategoryMode) {
-                                onNavigateBack()
-                            } else {
-                                val parent = File(state.currentPath).parentFile
-                                if (parent != null && parent.exists() && state.currentPath != "/" && state.currentPath != "/storage/emulated/0") {
-                                    viewModel.navigateTo(parent.absolutePath, parent.name.ifEmpty { "Root" })
-                                } else {
-                                    onNavigateBack()
-                                }
-                            }
-                        }
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.toggleViewMode() }) {
-                        Icon(
-                            imageVector = if (state.viewMode == ViewMode.LIST) Icons.Default.GridView else Icons.AutoMirrored.Filled.ViewList,
-                            contentDescription = "Toggle View"
-                        )
-                    }
-                    IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
-                    }
-                    DropdownMenu(
-                        expanded = showSortMenu,
-                        onDismissRequest = { showSortMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Name (A to Z)") },
-                            onClick = {
-                                showSortMenu = false
-                                viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.NAME, order = SortOrder.ASCENDING))
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Date (Newest First)") },
-                            onClick = {
-                                showSortMenu = false
-                                viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.DATE, order = SortOrder.DESCENDING))
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Size (Largest First)") },
-                            onClick = {
-                                showSortMenu = false
-                                viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.SIZE, order = SortOrder.DESCENDING))
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Type") },
-                            onClick = {
-                                showSortMenu = false
-                                viewModel.updateSortOption(state.sortOption.copy(sortBy = SortBy.TYPE, order = SortOrder.ASCENDING))
-                            }
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = {
-                                Text(if (state.sortOption.showHiddenFiles) "Hide Hidden Files" else "Show Hidden Files")
-                            },
-                            onClick = {
-                                showSortMenu = false
-                                viewModel.updateSortOption(state.sortOption.copy(showHiddenFiles = !state.sortOption.showHiddenFiles))
-                            }
-                        )
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            if (state.isSelectionMode) {
-                BatchActionBar(
-                    selectedCount = state.selectedFiles.size,
-                    onCopy = { viewModel.copySelected() },
-                    onCut = { viewModel.cutSelected() },
-                    onDelete = {
-                        itemsToDelete = state.files.filter { state.selectedFiles.contains(it.path) }
-                        showDeleteConfirmDialog = true
-                    },
-                    onVault = {
-                        val selected = state.files.filter { state.selectedFiles.contains(it.path) }
-                        viewModel.moveItemsToVault(selected)
-                    },
-                    onZip = {
-                        val selected = state.files.filter { state.selectedFiles.contains(it.path) }
-                        viewModel.zipItems(selected)
-                    },
-                    onSelectAll = { viewModel.selectAll() },
-                    onClose = { viewModel.clearSelection() }
                 )
-            }
-        },
-        floatingActionButton = {
+            },
+            bottomBar = {
+                if (state.isSelectionMode) {
+                    BatchActionBar(
+                        selectedCount = state.selectedFiles.size,
+                        onCopy = { viewModel.copySelected() },
+                        onCut = { viewModel.cutSelected() },
+                        onRename = { showBatchRenameDialog = true },
+                        onDelete = {
+                            itemsToDelete = state.files.filter { state.selectedFiles.contains(it.path) }
+                            showDeleteConfirmDialog = true
+                        },
+                        onVault = {
+                            val selected = state.files.filter { state.selectedFiles.contains(it.path) }
+                            viewModel.moveItemsToVault(selected)
+                        },
+                        onZip = {
+                            val selected = state.files.filter { state.selectedFiles.contains(it.path) }
+                            viewModel.zipItems(selected)
+                        },
+                        onSelectAll = { viewModel.selectAll() },
+                        onClose = { viewModel.clearSelection() }
+                    )
+                }
+            },
+            floatingActionButton = {
             if (state.clipboard != null) {
                 ExtendedFloatingActionButton(
                     onClick = { viewModel.pasteClipboard() },
@@ -452,5 +497,18 @@ fun ExplorerScreen(
                 itemsToDelete = emptyList()
             }
         )
+    }
+
+    if (showBatchRenameDialog) {
+        val selectedItems = state.files.filter { state.selectedFiles.contains(it.path) }
+        BatchRenameDialog(
+            items = selectedItems,
+            onDismiss = { showBatchRenameDialog = false },
+            onConfirm = { newNames ->
+                viewModel.batchRename(selectedItems, newNames)
+                showBatchRenameDialog = false
+            }
+        )
+    }
     }
 }

@@ -15,6 +15,7 @@ class IManageApp : Application() {
     val trashRepository: TrashRepository by lazy { TrashRepository(this, database.trashDao()) }
     val storageAnalyzerRepository: StorageAnalyzerRepository by lazy { StorageAnalyzerRepository() }
     val tagRepository: com.imanage.fileexplorer.data.repository.TagRepository by lazy { com.imanage.fileexplorer.data.repository.TagRepository(database.tagDao()) }
+    val bookmarkRepository: com.imanage.fileexplorer.data.repository.BookmarkRepository by lazy { com.imanage.fileexplorer.data.repository.BookmarkRepository(database.bookmarkDao()) }
 
     override fun onCreate() {
         super.onCreate()

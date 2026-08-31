@@ -329,6 +329,30 @@ class FileSystemRepository(private val context: Context) {
         }
     }
 
+    suspend fun batchRename(
+        items: List<FileItem>,
+        newNames: List<String>
+    ): Pair<Int, List<String>> = withContext(Dispatchers.IO) {
+        var successCount = 0
+        val errors = mutableListOf<String>()
+        items.forEachIndexed { index, item ->
+            val newName = newNames.getOrNull(index)
+            if (!newName.isNullOrEmpty() && newName != item.name) {
+                val target = File(item.file.parentFile, newName)
+                if (target.exists()) {
+                    errors.add("${item.name}: Target already exists")
+                } else if (item.file.renameTo(target)) {
+                    notifyMediaScanner(item.file.absolutePath)
+                    notifyMediaScanner(target.absolutePath)
+                    successCount++
+                } else {
+                    errors.add("${item.name}: Failed to rename")
+                }
+            }
+        }
+        Pair(successCount, errors)
+    }
+
     suspend fun zipFiles(
         sourceFiles: List<File>,
         destZipFile: File,
