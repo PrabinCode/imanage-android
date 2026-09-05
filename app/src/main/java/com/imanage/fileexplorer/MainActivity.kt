@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.mutableStateOf
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.compose.rememberNavController
 import com.imanage.fileexplorer.data.security.AutoLockManager
@@ -18,8 +19,11 @@ import com.imanage.fileexplorer.ui.theme.IManageTheme
 
 class MainActivity : FragmentActivity() {
 
+    private val pendingIntent = mutableStateOf<Intent?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingIntent.value = intent
         enableEdgeToEdge()
 
         val prefs = getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE)
@@ -36,9 +40,20 @@ class MainActivity : FragmentActivity() {
         setContent {
             IManageTheme {
                 val navController = rememberNavController()
-                AppNavGraph(navController = navController, app = app)
+                AppNavGraph(
+                    navController = navController,
+                    app = app,
+                    incomingIntent = pendingIntent.value,
+                    onIntentHandled = { pendingIntent.value = null }
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingIntent.value = intent
     }
 
     override fun onResume() {

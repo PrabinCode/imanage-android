@@ -373,6 +373,17 @@ object LocalWifiServer {
                     .title { color: #38bdf8; font-size: 1.5rem; font-weight: bold; }
                     .actions-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 1rem; background: #1e293b; padding: 12px 16px; border-radius: 12px; }
                     .path-bar { flex: 1; font-family: monospace; color: #94a3b8; word-break: break-all; }
+                    .drop-zone { border: 2px dashed #0284c7; background: rgba(2, 132, 199, 0.05); border-radius: 12px; padding: 24px; text-align: center; cursor: pointer; margin-bottom: 1.25rem; transition: all 0.2s ease; }
+                    .drop-zone:hover, .drop-zone.dragover { border-color: #38bdf8; background: rgba(56, 189, 248, 0.12); transform: translateY(-2px); }
+                    .drop-icon { font-size: 2.2rem; margin-bottom: 6px; }
+                    .drop-title { font-size: 1.1rem; font-weight: 600; color: #38bdf8; margin-bottom: 4px; }
+                    .drop-subtitle { font-size: 0.85rem; color: #94a3b8; }
+                    .drag-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 9999; pointer-events: none; }
+                    .drag-overlay.active { display: flex; }
+                    .drag-overlay-box { border: 3px dashed #38bdf8; background: #1e293b; border-radius: 20px; padding: 2.5rem 3.5rem; text-align: center; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); animation: popIn 0.2s ease; }
+                    @keyframes popIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+                    .drag-overlay-title { font-size: 1.5rem; font-weight: bold; color: #38bdf8; margin: 12px 0 6px; }
+                    .drag-overlay-dest { font-size: 0.9rem; color: #94a3b8; font-family: monospace; }
                     table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; margin-top: 1rem; }
                     th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; }
                     th { background: #0f172a; color: #94a3b8; font-size: 0.85rem; text-transform: uppercase; }
@@ -392,6 +403,14 @@ object LocalWifiServer {
                 </style>
             </head>
             <body>
+                <div id="drag-overlay" class="drag-overlay">
+                    <div class="drag-overlay-box">
+                        <div style="font-size: 3.5rem;">📥</div>
+                        <div class="drag-overlay-title">Drop files to upload to phone</div>
+                        <div class="drag-overlay-dest">Folder: ${currentDir.name.ifEmpty { "Storage" }}</div>
+                    </div>
+                </div>
+
                 <div class="header">
                     <div class="title">📱 I Manage Wireless Transfer</div>
                     <div style="color: #4ade80; font-size: 0.9rem;">● Connected via Local Wi-Fi (Offline)</div>
@@ -408,6 +427,12 @@ object LocalWifiServer {
                     <button class="btn" onclick="let n = prompt('Enter new folder name:'); if(n) window.location.href='/mkdir?dir=$encodedCurrent&name=' + encodeURIComponent(n);">
                         📁 New Folder
                     </button>
+                </div>
+
+                <div id="drop-zone" class="drop-zone" onclick="document.getElementById('fileInput').click()">
+                    <div class="drop-icon">📥</div>
+                    <div class="drop-title">Drag &amp; Drop files here to upload to this folder</div>
+                    <div class="drop-subtitle">or click here to browse files from your computer</div>
                 </div>
 
                 <div id="progress-container">
@@ -432,6 +457,58 @@ object LocalWifiServer {
                 </table>
 
                 <script>
+                    const overlay = document.getElementById('drag-overlay');
+                    const dropZone = document.getElementById('drop-zone');
+                    let dragCounter = 0;
+
+                    // Prevent default window drag behaviors
+                    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                        window.addEventListener(eventName, e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }, false);
+                    });
+
+                    window.addEventListener('dragenter', e => {
+                        dragCounter++;
+                        if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+                            overlay.classList.add('active');
+                            dropZone.classList.add('dragover');
+                        }
+                    });
+
+                    window.addEventListener('dragleave', e => {
+                        dragCounter--;
+                        if (dragCounter <= 0) {
+                            dragCounter = 0;
+                            overlay.classList.remove('active');
+                            dropZone.classList.remove('dragover');
+                        }
+                    });
+
+                    window.addEventListener('drop', e => {
+                        dragCounter = 0;
+                        overlay.classList.remove('active');
+                        dropZone.classList.remove('dragover');
+
+                        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                            uploadFiles(e.dataTransfer.files);
+                        }
+                    });
+
+                    dropZone.addEventListener('dragover', () => {
+                        dropZone.classList.add('dragover');
+                    });
+                    dropZone.addEventListener('dragleave', () => {
+                        dropZone.classList.remove('dragover');
+                    });
+                    dropZone.addEventListener('drop', e => {
+                        dropZone.classList.remove('dragover');
+                        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                            uploadFiles(e.dataTransfer.files);
+                        }
+                    });
+
                     async function uploadFiles(files) {
                         if (!files || files.length === 0) return;
                         
