@@ -1,5 +1,6 @@
 package com.imanage.fileexplorer.ui.screens.explorer
 
+import android.content.Context
 import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -62,8 +63,13 @@ class ExplorerViewModel(
     val uiState: StateFlow<ExplorerUiState> = _uiState.asStateFlow()
 
     init {
+        val prefs = IManageApp.instance.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE)
+        val defaultShowHidden = prefs.getBoolean("show_hidden_files", false)
         val volumes = fileSystemRepository.getStorageVolumes()
-        _uiState.value = _uiState.value.copy(storageVolumes = volumes)
+        _uiState.value = _uiState.value.copy(
+            storageVolumes = volumes,
+            sortOption = _uiState.value.sortOption.copy(showHiddenFiles = defaultShowHidden)
+        )
 
         viewModelScope.launch {
             tagRepository.getAllTags().collectLatest { tags ->
@@ -197,11 +203,24 @@ class ExplorerViewModel(
 
     fun setSortOption(option: SortOption) {
         _uiState.value = _uiState.value.copy(sortOption = option)
+        val prefs = IManageApp.instance.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("show_hidden_files", option.showHiddenFiles).apply()
         loadCurrent()
     }
 
     fun updateSortOption(option: SortOption) {
         setSortOption(option)
+    }
+
+    fun syncSettings() {
+        val prefs = IManageApp.instance.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE)
+        val showHidden = prefs.getBoolean("show_hidden_files", false)
+        if (_uiState.value.sortOption.showHiddenFiles != showHidden) {
+            _uiState.value = _uiState.value.copy(
+                sortOption = _uiState.value.sortOption.copy(showHiddenFiles = showHidden)
+            )
+            loadCurrent()
+        }
     }
 
     fun toggleViewMode() {

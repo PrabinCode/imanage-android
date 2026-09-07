@@ -53,6 +53,8 @@ class WifiServerService : Service() {
         }
     }
 
+    private var isForegroundStarted = false
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -73,13 +75,27 @@ class WifiServerService : Service() {
         val currentState = LocalWifiServer.serverState.value
         val notification = buildNotification(currentState)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            isForegroundStarted = true
+        } catch (e: Exception) {
+            // Fallback in case of system foreground service rejection
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        serviceScope.launch {
+            LocalWifiServer.stopServer()
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun observeServerState() {
@@ -88,7 +104,7 @@ class WifiServerService : Service() {
                 if (!state.isRunning) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
-                } else {
+                } else if (isForegroundStarted) {
                     val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     nm.notify(NOTIFICATION_ID, buildNotification(state))
                 }
@@ -98,7 +114,8 @@ class WifiServerService : Service() {
 
     private fun buildNotification(state: ServerState): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("navigate_to", "wifi_share")
         }
         val pendingOpenIntent = PendingIntent.getActivity(
             this,
@@ -125,7 +142,7 @@ class WifiServerService : Service() {
             .setContentTitle("PC / Wi-Fi Transfer Active")
             .setContentText(contentText)
             .setSubText("Running in background")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_wifi_transfer)
             .setContentIntent(pendingOpenIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

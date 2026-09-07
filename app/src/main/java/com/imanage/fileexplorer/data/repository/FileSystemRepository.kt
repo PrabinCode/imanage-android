@@ -1,5 +1,6 @@
 package com.imanage.fileexplorer.data.repository
 
+import android.app.usage.StorageStatsManager
 import android.content.ContentUris
 import android.content.Context
 import android.media.MediaScannerConnection
@@ -34,8 +35,25 @@ class FileSystemRepository(private val context: Context) {
 
         // 1. Primary Internal Storage (/storage/emulated/0)
         val primaryDir = Environment.getExternalStorageDirectory()
-        val totalSpace = primaryDir.totalSpace
-        val freeSpace = primaryDir.freeSpace
+        var totalSpace = primaryDir.totalSpace
+        var freeSpace = primaryDir.usableSpace
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val storageStatsManager = context.getSystemService(Context.STORAGE_STATS_SERVICE) as? StorageStatsManager
+                if (storageStatsManager != null) {
+                    val statsTotal = storageStatsManager.getTotalBytes(StorageManager.UUID_DEFAULT)
+                    val statsFree = storageStatsManager.getFreeBytes(StorageManager.UUID_DEFAULT)
+                    if (statsTotal > 0L) {
+                        totalSpace = statsTotal
+                        freeSpace = statsFree
+                    }
+                }
+            } catch (_: Exception) {
+                // Fallback to primaryDir.usableSpace
+            }
+        }
+
         volumes.add(
             StorageVolumeInfo(
                 name = "Internal Storage",
@@ -66,7 +84,7 @@ class FileSystemRepository(private val context: Context) {
                                     name = vol.getDescription(context) ?: "SD Card",
                                     path = file.absolutePath,
                                     totalBytes = file.totalSpace,
-                                    freeBytes = file.freeSpace,
+                                    freeBytes = file.usableSpace,
                                     isRemovable = true,
                                     isPrimary = false
                                 )
@@ -111,7 +129,13 @@ class FileSystemRepository(private val context: Context) {
 
         val rawFiles = dir.listFiles() ?: return@withContext emptyList()
 
+        val prefs = context.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE)
+        val showNomedia = prefs.getBoolean("show_nomedia_files", true)
+
         val filtered = rawFiles.filter { file ->
+            if (file.name == ".nomedia" && !showNomedia) {
+                return@filter false
+            }
             if (!sortOption.showHiddenFiles && (file.isHidden || file.name.startsWith("."))) {
                 false
             } else {

@@ -79,11 +79,13 @@ class HomeViewModel(
                 val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val dcimDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
                 val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                val moviesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+                val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
 
                 fun collectRecent(dir: File) {
                     try {
                         if (dir.exists()) {
-                            dir.walkTopDown().maxDepth(2).filter { it.isFile && !it.name.startsWith(".") }.forEach {
+                            dir.walkTopDown().maxDepth(3).filter { it.isFile && !it.name.startsWith(".") }.forEach {
                                 recents.add(FileItem.fromFile(it))
                             }
                         }
@@ -93,8 +95,34 @@ class HomeViewModel(
                 collectRecent(downloadDir)
                 collectRecent(dcimDir)
                 collectRecent(docsDir)
+                collectRecent(moviesDir)
+                collectRecent(picturesDir)
 
-                val sortedRecents = recents.distinctBy { it.path }.sortedByDescending { it.lastModified }.take(20)
+                // Query Android MediaStore for recent videos and images across all apps
+                try {
+                    val cr = IManageApp.instance.contentResolver
+                    val projection = arrayOf(android.provider.MediaStore.MediaColumns.DATA, android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
+                    val queryUri = android.provider.MediaStore.Files.getContentUri("external")
+                    val selection = "(${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO} OR ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE})"
+                    val sortOrder = "${android.provider.MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+
+                    cr.query(queryUri, projection, selection, null, sortOrder)?.use { cursor ->
+                        val dataIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATA)
+                        var count = 0
+                        while (cursor.moveToNext() && count < 30) {
+                            val path = cursor.getString(dataIdx)
+                            if (!path.isNullOrEmpty()) {
+                                val f = File(path)
+                                if (f.exists() && f.isFile && !f.name.startsWith(".")) {
+                                    recents.add(FileItem.fromFile(f))
+                                    count++
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                val sortedRecents = recents.distinctBy { it.path }.sortedByDescending { it.lastModified }.take(25)
 
                 _uiState.value = _uiState.value.copy(
                     storageVolumes = volumes,

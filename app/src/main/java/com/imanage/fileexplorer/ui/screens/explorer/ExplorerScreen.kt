@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +64,7 @@ fun ExplorerScreen(
     var itemsToDelete by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var showSortMenu by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
+    var isInitialized by rememberSaveable(initialPath, categoryName) { mutableStateOf(false) }
 
     LaunchedEffect(state.toastMessage) {
         state.toastMessage?.let {
@@ -72,12 +74,19 @@ fun ExplorerScreen(
     }
 
     LaunchedEffect(initialPath, categoryName) {
-        if (!categoryName.isNullOrEmpty()) {
-            val matchedType = FileType.entries.find { it.name.equals(categoryName, ignoreCase = true) || it.displayName.equals(categoryName, ignoreCase = true) } ?: FileType.DOCUMENT
-            viewModel.navigateToCategory(matchedType)
-        } else if (initialPath.isNotEmpty()) {
-            viewModel.navigateTo(initialPath, title)
+        viewModel.syncSettings()
+        if (!isInitialized) {
+            isInitialized = true
+            if (!categoryName.isNullOrEmpty()) {
+                val matchedType = FileType.entries.find { it.name.equals(categoryName, ignoreCase = true) || it.displayName.equals(categoryName, ignoreCase = true) } ?: FileType.DOCUMENT
+                viewModel.navigateToCategory(matchedType)
+            } else if (initialPath.isNotEmpty()) {
+                viewModel.navigateTo(initialPath, title)
+            } else {
+                viewModel.loadCurrent()
+            }
         } else {
+            // Re-entering screen (e.g. Back from Video/Image viewer): refresh contents of current folder
             viewModel.loadCurrent()
         }
     }

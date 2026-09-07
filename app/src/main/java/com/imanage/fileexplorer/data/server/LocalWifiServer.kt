@@ -167,9 +167,17 @@ object LocalWifiServer {
     private fun handleClient(socket: Socket) {
         try {
             socket.use { client ->
+                client.tcpNoDelay = true
+                client.soTimeout = 45000
+                try {
+                    client.receiveBufferSize = 256 * 1024
+                    client.sendBufferSize = 256 * 1024
+                } catch (_: Exception) {}
+
                 val rawInput = client.getInputStream()
-                val bufferedIn = BufferedInputStream(rawInput)
-                val output = client.getOutputStream()
+                val bufferedIn = BufferedInputStream(rawInput, 256 * 1024)
+                val rawOutput = client.getOutputStream()
+                val output = BufferedOutputStream(rawOutput, 64 * 1024)
 
                 val requestLine = readLine(bufferedIn) ?: return
                 val parts = requestLine.split(" ")
@@ -200,6 +208,7 @@ object LocalWifiServer {
                     if (enteredPin == currentPin) {
                         val response = "HTTP/1.1 302 Found\r\nSet-Cookie: imanage_auth=$currentPin; Path=/; HttpOnly\r\nLocation: /\r\n\r\n"
                         output.write(response.toByteArray())
+                        output.flush()
                     } else {
                         sendHtml(output, getLoginPage("Invalid PIN! Try again."))
                     }
@@ -227,33 +236,55 @@ object LocalWifiServer {
                 if (path == "/upload" && method == "POST") {
                     val targetDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
                     val rawFilename = queryParams["filename"] ?: "Uploaded_${System.currentTimeMillis()}"
-                    val filename = URLDecoder.decode(rawFilename, "UTF-8")
+                    // rawFilename is already decoded by parseQuery
+                    val filename = rawFilename
                     val targetDir = File(targetDirPath)
+                    if (!targetDir.exists()) {
+                        targetDir.mkdirs()
+                    }
                     val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
 
                     if (contentLength > 0L) {
                         val outputFile = File(targetDir, filename)
-                        FileOutputStream(outputFile).use { fos ->
-                            val buf = ByteArray(64 * 1024)
-                            var remaining = contentLength
-                            while (remaining > 0L) {
-                                val toRead = remaining.coerceAtMost(buf.size.toLong()).toInt()
-                                val read = bufferedIn.read(buf, 0, toRead)
-                                if (read == -1) break
-                                fos.write(buf, 0, read)
-                                remaining -= read
+                        val tempFile = File(targetDir, "${filename}.part_${System.currentTimeMillis()}")
+                        var success = false
+
+                        try {
+                            BufferedOutputStream(FileOutputStream(tempFile), 256 * 1024).use { fos ->
+                                val buf = ByteArray(128 * 1024)
+                                var remaining = contentLength
+                                while (remaining > 0L) {
+                                    val toRead = remaining.coerceAtMost(buf.size.toLong()).toInt()
+                                    val read = bufferedIn.read(buf, 0, toRead)
+                                    if (read == -1) break
+                                    fos.write(buf, 0, read)
+                                    remaining -= read
+                                }
+                                fos.flush()
+                                success = (remaining == 0L)
                             }
+                            if (success) {
+                                if (outputFile.exists()) {
+                                    outputFile.delete()
+                                }
+                                tempFile.renameTo(outputFile)
+                                appContext?.let { MediaScannerConnection.scanFile(it, arrayOf(outputFile.absolutePath), null, null) }
+                            } else {
+                                tempFile.delete()
+                            }
+                        } catch (e: Exception) {
+                            tempFile.delete()
                         }
-                        appContext?.let { MediaScannerConnection.scanFile(it, arrayOf(outputFile.absolutePath), null, null) }
                     }
 
-                    val json = "{\"status\":\"ok\",\"file\":\"$filename\"}"
+                    val json = "{\"status\":\"ok\",\"file\":\"${filename.replace("\"", "\\\"")}\"}"
+                    val jsonBytes = json.toByteArray(Charsets.UTF_8)
                     val header = "HTTP/1.1 200 OK\r\n" +
                             "Content-Type: application/json\r\n" +
-                            "Content-Length: ${json.length}\r\n" +
+                            "Content-Length: ${jsonBytes.size}\r\n" +
                             "Connection: close\r\n\r\n"
                     output.write(header.toByteArray())
-                    output.write(json.toByteArray())
+                    output.write(jsonBytes)
                     output.flush()
                     return
                 }
@@ -301,8 +332,8 @@ object LocalWifiServer {
         } catch (e: Exception) { }
     }
 
-    private fun readLine(input: InputStream): String? {
-        val bout = ByteArrayOutputStream()
+    private fun readLine(input: InputStream, maxLen: Int = 8192): String? {
+        val bout = ByteArrayOutputStream(128)
         var b: Int
         var prev = -1
         while (input.read().also { b = it } != -1) {
@@ -312,6 +343,9 @@ object LocalWifiServer {
             }
             bout.write(b)
             prev = b
+            if (bout.size() > maxLen) {
+                return null // Line length exceeded limit; abort to prevent OOM
+            }
         }
         if (bout.size() == 0) return null
         return bout.toString("ISO-8859-1")
@@ -490,7 +524,7 @@ object LocalWifiServer {
                     
                     <label class="btn" style="background: #10b981;">
                         📤 Upload Files to Phone
-                        <input type="file" id="fileInput" multiple onchange="uploadFiles(this.files)" />
+                        <input type="file" id="fileInput" multiple onchange="handleFileInput(this)" />
                     </label>
 
                     <button class="btn" onclick="let n = prompt('Enter new folder name:'); if(n) window.location.href='/mkdir?dir=$encodedCurrent&name=' + encodeURIComponent(n);">
@@ -505,10 +539,10 @@ object LocalWifiServer {
                 </div>
 
                 <div id="progress-container">
-                    <div style="background: #334155; border-radius: 4px; overflow: hidden;">
-                        <div id="progress-bar"></div>
+                    <div style="background: #334155; border-radius: 6px; overflow: hidden; height: 10px;">
+                        <div id="progress-bar" style="width: 0%; height: 100%; background: #10b981; border-radius: 6px; transition: width 0.15s ease-out;"></div>
                     </div>
-                    <div id="progress-text">Uploading...</div>
+                    <div id="progress-text" style="font-size: 0.85rem; color: #38bdf8; margin-top: 8px; font-family: monospace;">Uploading...</div>
                 </div>
 
                 <table>
@@ -529,16 +563,11 @@ object LocalWifiServer {
                     const overlay = document.getElementById('drag-overlay');
                     const dropZone = document.getElementById('drop-zone');
                     let dragCounter = 0;
+                    let isUploading = false;
 
-                    // Prevent default window drag behaviors
-                    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                        window.addEventListener(eventName, e => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                        }, false);
-                    });
-
+                    // Unified drag and drop handling without duplicate drop events
                     window.addEventListener('dragenter', e => {
+                        e.preventDefault();
                         dragCounter++;
                         if (e.dataTransfer && e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
                             overlay.classList.add('active');
@@ -546,7 +575,12 @@ object LocalWifiServer {
                         }
                     });
 
+                    window.addEventListener('dragover', e => {
+                        e.preventDefault();
+                    });
+
                     window.addEventListener('dragleave', e => {
+                        e.preventDefault();
                         dragCounter--;
                         if (dragCounter <= 0) {
                             dragCounter = 0;
@@ -556,6 +590,8 @@ object LocalWifiServer {
                     });
 
                     window.addEventListener('drop', e => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         dragCounter = 0;
                         overlay.classList.remove('active');
                         dropZone.classList.remove('dragover');
@@ -565,68 +601,96 @@ object LocalWifiServer {
                         }
                     });
 
-                    dropZone.addEventListener('dragover', () => {
-                        dropZone.classList.add('dragover');
-                    });
-                    dropZone.addEventListener('dragleave', () => {
-                        dropZone.classList.remove('dragover');
-                    });
-                    dropZone.addEventListener('drop', e => {
-                        dropZone.classList.remove('dragover');
-                        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                            uploadFiles(e.dataTransfer.files);
+                    function handleFileInput(input) {
+                        if (input.files && input.files.length > 0) {
+                            uploadFiles(input.files);
                         }
-                    });
+                        input.value = '';
+                    }
+
+                    function formatBytes(bytes) {
+                        if (bytes === 0) return '0 B';
+                        const k = 1024;
+                        const sizes = ['B', 'KB', 'MB', 'GB'];
+                        const i = Math.floor(Math.log(bytes) / Math.log(k));
+                        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+                    }
 
                     async function uploadFiles(files) {
                         if (!files || files.length === 0) return;
-                        
+                        if (isUploading) {
+                            alert('An upload is already in progress. Please wait for it to complete.');
+                            return;
+                        }
+
+                        isUploading = true;
                         const progContainer = document.getElementById('progress-container');
                         const progBar = document.getElementById('progress-bar');
                         const progText = document.getElementById('progress-text');
-                        
+
                         progContainer.style.display = 'block';
-                        
+
+                        let totalBatchBytes = 0;
                         for (let i = 0; i < files.length; i++) {
-                            const file = files[i];
-                            progText.innerText = 'Uploading (' + (i + 1) + '/' + files.length + '): ' + file.name;
-                            progBar.style.width = '10%';
-                            
-                            await new Promise((resolve, reject) => {
-                                const xhr = new XMLHttpRequest();
-                                const url = '/upload?dir=' + encodeURIComponent('${currentDir.absolutePath}') + '&filename=' + encodeURIComponent(file.name);
-                                
-                                xhr.open('POST', url, true);
-                                
-                                xhr.upload.onprogress = function(e) {
-                                    if (e.lengthComputable) {
-                                        const pct = Math.round((e.loaded / e.total) * 100);
-                                        progBar.style.width = pct + '%';
-                                        progText.innerText = 'Uploading ' + file.name + ' (' + pct + '%)';
-                                    }
-                                };
-                                
-                                xhr.onload = function() {
-                                    if (xhr.status === 200) {
-                                        resolve();
-                                    } else {
-                                        alert('Upload failed for: ' + file.name);
-                                        resolve();
-                                    }
-                                };
-                                
-                                xhr.onerror = function() {
-                                    alert('Network error uploading: ' + file.name);
-                                    resolve();
-                                };
-                                
-                                xhr.send(file);
-                            });
+                            totalBatchBytes += files[i].size;
                         }
-                        
-                        progText.innerText = 'Upload complete! Refreshing...';
-                        progBar.style.width = '100%';
-                        setTimeout(() => { window.location.reload(); }, 500);
+
+                        let cumulativeUploadedBefore = 0;
+                        const startTime = Date.now();
+
+                        try {
+                            for (let i = 0; i < files.length; i++) {
+                                const file = files[i];
+
+                                await new Promise((resolve) => {
+                                    const xhr = new XMLHttpRequest();
+                                    const url = '/upload?dir=' + encodeURIComponent('${currentDir.absolutePath}') + '&filename=' + encodeURIComponent(file.name);
+
+                                    xhr.open('POST', url, true);
+
+                                    xhr.upload.onprogress = function(e) {
+                                        if (e.lengthComputable) {
+                                            const currentOverallLoaded = cumulativeUploadedBefore + e.loaded;
+                                            const totalPct = totalBatchBytes > 0 ? Math.min(100, Math.round((currentOverallLoaded / totalBatchBytes) * 100)) : 0;
+                                            progBar.style.width = totalPct + '%';
+
+                                            const elapsedSec = Math.max(0.1, (Date.now() - startTime) / 1000);
+                                            const speedBytesPerSec = currentOverallLoaded / elapsedSec;
+                                            const speedStr = formatBytes(speedBytesPerSec) + '/s';
+
+                                            const uploadedStr = formatBytes(currentOverallLoaded);
+                                            const totalStr = formatBytes(totalBatchBytes);
+
+                                            progText.innerText = 'Uploading (' + (i + 1) + '/' + files.length + ') ' + file.name + ' • ' + totalPct + '% (' + uploadedStr + ' / ' + totalStr + ' at ' + speedStr + ')';
+                                        }
+                                    };
+
+                                    xhr.onload = function() {
+                                        cumulativeUploadedBefore += file.size;
+                                        if (xhr.status !== 200) {
+                                            alert('Upload warning: Server responded with status ' + xhr.status + ' for ' + file.name);
+                                        }
+                                        resolve();
+                                    };
+
+                                    xhr.onerror = function() {
+                                        cumulativeUploadedBefore += file.size;
+                                        alert('Network error while uploading: ' + file.name);
+                                        resolve();
+                                    };
+
+                                    xhr.send(file);
+                                });
+                            }
+
+                            progBar.style.width = '100%';
+                            progText.innerText = '✅ All ' + files.length + ' file(s) transferred successfully! Refreshing...';
+                            setTimeout(() => { window.location.reload(); }, 600);
+                        } catch (err) {
+                            alert('Upload error: ' + err.message);
+                        } finally {
+                            isUploading = false;
+                        }
                     }
                 </script>
             </body>

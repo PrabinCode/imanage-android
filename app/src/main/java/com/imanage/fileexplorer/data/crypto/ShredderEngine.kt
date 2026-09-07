@@ -35,7 +35,7 @@ object ShredderEngine {
                 file.listFiles()?.forEach { quickSecureWipe(it, context) }
                 val tempDir = File(file.parentFile ?: file, UUID.randomUUID().toString())
                 file.renameTo(tempDir)
-                tempDir.delete()
+                tempDir.deleteRecursively()
                 context?.let { MediaScannerConnection.scanFile(it, arrayOf(originalPath), null, null) }
                 return@withContext Result.success(true)
             }

@@ -9,10 +9,13 @@ import com.imanage.fileexplorer.data.crypto.ShredderEngine
 import com.imanage.fileexplorer.data.crypto.VaultCryptoEngine
 import com.imanage.fileexplorer.data.local.dao.VaultDao
 import com.imanage.fileexplorer.data.local.entity.VaultEntity
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.UUID
+import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -26,6 +29,21 @@ class VaultRepository(
 ) {
     private val vaultDir: File get() = File(context.filesDir, ".imanage_vault").apply { mkdirs() }
     private val tempDecryptedDir: File get() = File(context.cacheDir, ".vault_temp").apply { mkdirs() }
+
+    companion object {
+        fun calculateTotalSize(file: File): Long {
+            if (!file.exists()) return 0L
+            if (file.isFile) return file.length().coerceAtLeast(1L)
+            return try {
+                file.walkTopDown()
+                    .filter { it.isFile }
+                    .sumOf { it.length() }
+                    .coerceAtLeast(1L)
+            } catch (e: Exception) {
+                file.length().coerceAtLeast(1L)
+            }
+        }
+    }
 
     private val inFlightPaths = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val inFlightVaultIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
@@ -61,58 +79,83 @@ class VaultRepository(
             val encFileName = "${UUID.randomUUID()}.enc"
             val destEncFile = File(vaultDir, encFileName)
 
-            val fileToEncrypt: File
-            val totalSize: Long
-
-            if (isDir) {
-                val tempZip = File(context.cacheDir, "${UUID.randomUUID()}.zip")
-                zipDirectory(originalFile, tempZip)
-                fileToEncrypt = tempZip
-                totalSize = tempZip.length()
-            } else {
-                fileToEncrypt = originalFile
-                totalSize = originalFile.length()
-            }
-
-            val encResult = VaultCryptoEngine.encryptFile(
-                sourceFile = fileToEncrypt,
-                destFile = destEncFile,
-                context = context,
-                onProgress = onProgress
-            )
-
-            if (isDir && fileToEncrypt.exists()) {
-                fileToEncrypt.delete()
-            }
-
-            if (encResult.isFailure) {
-                return@withContext Result.failure(encResult.exceptionOrNull() ?: Exception("Encryption failed"))
-            }
-
-            val ext = originalFile.extension.lowercase()
-            val mime = if (isDir) "resource/folder" else (MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*")
-
-            val entity = VaultEntity(
-                encryptedFileName = encFileName,
-                originalFileName = originalName,
-                originalPath = originalPath,
-                fileSize = totalSize,
-                mimeType = mime,
-                isDirectory = isDir
-            )
-
-            val id = vaultDao.insertVaultItem(entity)
-            val savedEntity = entity.copy(id = id)
-
-            if (shredOriginal) {
-                ShredderEngine.quickSecureWipe(originalFile, context = context)
-            }
+            val totalSize = calculateTotalSize(originalFile)
+            val tempZip = if (isDir) File(vaultDir, "temp_${UUID.randomUUID()}.zip") else null
 
             try {
-                MediaScannerConnection.scanFile(context, arrayOf(originalPath), null, null)
-            } catch (e: Exception) { }
+                if (isDir && tempZip != null) {
+                    val halfBytes = totalSize / 2
+                    // Phase 1: High-throughput raw archiving (0% to 50%)
+                    zipDirectory(
+                        dir = originalFile,
+                        destZip = tempZip,
+                        totalBytes = totalSize,
+                        onProgress = { zippedBytes, total ->
+                            val p1 = (zippedBytes.toDouble() / total.toDouble() * halfBytes).toLong()
+                            onProgress(p1, totalSize)
+                        }
+                    )
 
-            Result.success(savedEntity)
+                    // Phase 2: Hardware AES-256 encryption (50% to 100%)
+                    val encResult = VaultCryptoEngine.encryptFile(
+                        sourceFile = tempZip,
+                        destFile = destEncFile,
+                        context = context,
+                        onProgress = { encBytes, encTotal ->
+                            val p2 = halfBytes + (encBytes.toDouble() / encTotal.toDouble() * (totalSize - halfBytes)).toLong()
+                            onProgress(p2.coerceAtMost(totalSize), totalSize)
+                        }
+                    )
+
+                    if (encResult.isFailure) {
+                        return@withContext Result.failure(encResult.exceptionOrNull() ?: Exception("Encryption failed"))
+                    }
+                } else {
+                    // Single file encryption (0% to 100%)
+                    val encResult = VaultCryptoEngine.encryptFile(
+                        sourceFile = originalFile,
+                        destFile = destEncFile,
+                        context = context,
+                        onProgress = onProgress
+                    )
+
+                    if (encResult.isFailure) {
+                        return@withContext Result.failure(encResult.exceptionOrNull() ?: Exception("Encryption failed"))
+                    }
+                }
+
+                // Ensure 100% progress emitted
+                onProgress(totalSize, totalSize)
+
+                val ext = originalFile.extension.lowercase()
+                val mime = if (isDir) "resource/folder" else (MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*")
+
+                val entity = VaultEntity(
+                    encryptedFileName = encFileName,
+                    originalFileName = originalName,
+                    originalPath = originalPath,
+                    fileSize = totalSize,
+                    mimeType = mime,
+                    isDirectory = isDir
+                )
+
+                val id = vaultDao.insertVaultItem(entity)
+                val savedEntity = entity.copy(id = id)
+
+                if (shredOriginal) {
+                    ShredderEngine.quickSecureWipe(originalFile, context = context)
+                }
+
+                try {
+                    MediaScannerConnection.scanFile(context, arrayOf(originalPath), null, null)
+                } catch (e: Exception) { }
+
+                Result.success(savedEntity)
+            } finally {
+                if (tempZip != null && tempZip.exists()) {
+                    tempZip.delete()
+                }
+            }
         } catch (e: Exception) {
             Result.failure(e)
         } finally {
@@ -167,19 +210,49 @@ class VaultRepository(
             targetDir.mkdirs()
 
             if (vaultEntity.isDirectory) {
-                val tempZip = File(context.cacheDir, "${UUID.randomUUID()}.zip")
-                val decResult = VaultCryptoEngine.decryptFile(encFile, tempZip, context = context, onProgress = onProgress)
-                if (decResult.isSuccess) {
-                    val destFolder = File(targetDir, vaultEntity.originalFileName)
-                    destFolder.mkdirs()
-                    unzipToDirectory(tempZip, destFolder)
-                    tempZip.delete()
-                    encFile.delete()
-                    vaultDao.deleteById(vaultEntity.id)
-                    MediaScannerConnection.scanFile(context, arrayOf(destFolder.absolutePath), null, null)
-                    Result.success(destFolder)
-                } else {
-                    Result.failure(decResult.exceptionOrNull() ?: Exception("Decryption failed"))
+                val tempZip = File(vaultDir, "temp_restore_${UUID.randomUUID()}.zip")
+                try {
+                    val totalBytes = vaultEntity.fileSize.coerceAtLeast(1L)
+                    val halfBytes = totalBytes / 2
+
+                    // Phase 1: Hardware-accelerated AES-256 Decryption (0% to 50%)
+                    val decResult = VaultCryptoEngine.decryptFile(
+                        encryptedFile = encFile,
+                        destFile = tempZip,
+                        context = context,
+                        onProgress = { decBytes, decTotal ->
+                            val p1 = (decBytes.toDouble() / decTotal.toDouble() * halfBytes).toLong()
+                            onProgress(p1, totalBytes)
+                        }
+                    )
+
+                    if (decResult.isSuccess) {
+                        val destFolder = File(targetDir, vaultEntity.originalFileName)
+                        destFolder.mkdirs()
+
+                        // Phase 2: High-throughput Archive Extraction (50% to 100%)
+                        unzipToDirectory(
+                            zipFile = tempZip,
+                            destDir = destFolder,
+                            totalBytes = totalBytes,
+                            onProgress = { unzippedBytes, _ ->
+                                val p2 = halfBytes + (unzippedBytes.toDouble() / totalBytes.toDouble() * (totalBytes - halfBytes)).toLong()
+                                onProgress(p2.coerceAtMost(totalBytes), totalBytes)
+                            }
+                        )
+
+                        encFile.delete()
+                        vaultDao.deleteById(vaultEntity.id)
+                        MediaScannerConnection.scanFile(context, arrayOf(destFolder.absolutePath), null, null)
+                        onProgress(totalBytes, totalBytes)
+                        Result.success(destFolder)
+                    } else {
+                        Result.failure(decResult.exceptionOrNull() ?: Exception("Decryption failed"))
+                    }
+                } finally {
+                    if (tempZip.exists()) {
+                        tempZip.delete()
+                    }
                 }
             } else {
                 var targetFile = File(targetDir, vaultEntity.originalFileName)
@@ -240,44 +313,102 @@ class VaultRepository(
         tempDecryptedDir.mkdirs()
     }
 
-    private fun zipDirectory(dir: File, destZip: File) {
-        ZipOutputStream(FileOutputStream(destZip)).use { zos ->
-            fun addEntry(file: File, baseName: String) {
+    private fun zipDirectory(
+        dir: File,
+        destZip: File,
+        totalBytes: Long,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit
+    ) {
+        val safeTotal = totalBytes.coerceAtLeast(1L)
+        val buffer = ByteArray(128 * 1024)
+        var bytesProcessed = 0L
+        var lastProgressTime = 0L
+
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(destZip), 128 * 1024)).use { zos ->
+            // Use NO_COMPRESSION (Level 0) so zipping is a fast stream-copy (~150-250 MB/s).
+            // Safe Vault encrypts the archive with AES-256 hardware acceleration immediately after,
+            // so compressing already compressed photos/videos/documents wastes battery and locks the CPU.
+            zos.setLevel(Deflater.NO_COMPRESSION)
+
+            fun addEntry(file: File, relativePath: String) {
                 if (file.isDirectory) {
-                    file.listFiles()?.forEach { child ->
-                        addEntry(child, "$baseName/${child.name}")
+                    val dirEntryName = if (relativePath.endsWith("/")) relativePath else "$relativePath/"
+                    zos.putNextEntry(ZipEntry(dirEntryName))
+                    zos.closeEntry()
+                    val children = file.listFiles() ?: return
+                    for (child in children) {
+                        addEntry(child, "$dirEntryName${child.name}")
                     }
                 } else {
-                    val entry = ZipEntry(baseName)
+                    val entry = ZipEntry(relativePath)
                     zos.putNextEntry(entry)
-                    FileInputStream(file).use { fis ->
-                        fis.copyTo(zos, 64 * 1024)
+                    BufferedInputStream(FileInputStream(file), 128 * 1024).use { bis ->
+                        var read: Int
+                        while (bis.read(buffer).also { read = it } != -1) {
+                            zos.write(buffer, 0, read)
+                            bytesProcessed += read
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressTime >= 150L || bytesProcessed >= safeTotal) {
+                                lastProgressTime = now
+                                onProgress(bytesProcessed.coerceAtMost(safeTotal), safeTotal)
+                            }
+                        }
                     }
                     zos.closeEntry()
                 }
             }
+
             dir.listFiles()?.forEach { child ->
                 addEntry(child, child.name)
             }
+            zos.flush()
         }
+        onProgress(safeTotal, safeTotal)
     }
 
-    private fun unzipToDirectory(zipFile: File, destDir: File) {
-        ZipInputStream(FileInputStream(zipFile)).use { zis ->
+    private fun unzipToDirectory(
+        zipFile: File,
+        destDir: File,
+        totalBytes: Long,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit
+    ) {
+        val safeTotal = totalBytes.coerceAtLeast(1L)
+        val canonicalDestDir = destDir.canonicalPath
+        var extractedBytes = 0L
+        var lastProgressTime = 0L
+        val buffer = ByteArray(128 * 1024)
+
+        ZipInputStream(BufferedInputStream(FileInputStream(zipFile), 128 * 1024)).use { zis ->
             var entry = zis.nextEntry
             while (entry != null) {
                 val newFile = File(destDir, entry.name)
+                // Zip Slip security guard: ensure target file cannot escape destDir
+                val canonicalTarget = newFile.canonicalPath
+                if (!canonicalTarget.startsWith(canonicalDestDir + File.separator) && canonicalTarget != canonicalDestDir) {
+                    throw SecurityException("Zip entry is outside target directory: ${entry.name}")
+                }
+
                 if (entry.isDirectory) {
                     newFile.mkdirs()
                 } else {
                     newFile.parentFile?.mkdirs()
-                    FileOutputStream(newFile).use { fos ->
-                        zis.copyTo(fos, 64 * 1024)
+                    BufferedOutputStream(FileOutputStream(newFile), 128 * 1024).use { fos ->
+                        var read: Int
+                        while (zis.read(buffer).also { read = it } != -1) {
+                            fos.write(buffer, 0, read)
+                            extractedBytes += read
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressTime >= 150L || extractedBytes >= safeTotal) {
+                                lastProgressTime = now
+                                onProgress(extractedBytes.coerceAtMost(safeTotal), safeTotal)
+                            }
+                        }
                     }
                 }
                 zis.closeEntry()
                 entry = zis.nextEntry
             }
         }
+        onProgress(safeTotal, safeTotal)
     }
 }

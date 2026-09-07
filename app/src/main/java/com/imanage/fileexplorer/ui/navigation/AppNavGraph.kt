@@ -175,6 +175,11 @@ fun AppNavGraph(
 
     LaunchedEffect(incomingIntent) {
         val currentIntent = incomingIntent ?: return@LaunchedEffect
+        val navigateTo = currentIntent.getStringExtra("navigate_to")
+        if (navigateTo == "wifi_share") {
+            navController.navigate(Screen.WifiShare.route)
+        }
+
         val action = currentIntent.action
         if (action == Intent.ACTION_VIEW || action == Intent.ACTION_EDIT) {
             val uri = currentIntent.data ?: currentIntent.clipData?.let { clip ->

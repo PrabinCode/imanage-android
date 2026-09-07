@@ -55,6 +55,12 @@ fun SettingsScreen(
     var rootAccessEnabled by remember {
         mutableStateOf(prefs.getBoolean("root_access_enabled", false))
     }
+    var showHiddenFiles by remember {
+        mutableStateOf(prefs.getBoolean("show_hidden_files", false))
+    }
+    var showNomediaFiles by remember {
+        mutableStateOf(prefs.getBoolean("show_nomedia_files", true))
+    }
     var showTimeoutMenu by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var updateInfoDialog by remember { mutableStateOf<AppUpdateInfo?>(null) }
@@ -119,6 +125,86 @@ fun SettingsScreen(
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Display & File Preferences
+            item {
+                Text(
+                    text = "Display & File Preferences",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Show / Hide Hidden Files
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.Visibility, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Show Hidden Files & Folders", fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Display files and folders starting with a dot (e.g. .thumbnails, .system).",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = showHiddenFiles,
+                            onCheckedChange = {
+                                showHiddenFiles = it
+                                prefs.edit().putBoolean("show_hidden_files", it).apply()
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Show / Hide .nomedia Files
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.HideImage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Show .nomedia Files", fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Display .nomedia hidden marker files inside media directories.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = showNomediaFiles,
+                            onCheckedChange = {
+                                showNomediaFiles = it
+                                prefs.edit().putBoolean("show_nomedia_files", it).apply()
+                            }
                         )
                     }
                 }

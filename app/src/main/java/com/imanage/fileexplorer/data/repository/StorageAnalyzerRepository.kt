@@ -33,7 +33,7 @@ class StorageAnalyzerRepository {
     ): StorageAnalysisResult = withContext(Dispatchers.IO) {
         val root = File(rootPath)
         val totalSpace = root.totalSpace
-        val freeSpace = root.freeSpace
+        val freeSpace = root.usableSpace
         val usedSpace = (totalSpace - freeSpace).coerceAtLeast(0L)
 
         val typeBytesMap = mutableMapOf<FileType, Long>()

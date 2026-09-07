@@ -15,6 +15,7 @@ import com.imanage.fileexplorer.IManageApp
 import com.imanage.fileexplorer.MainActivity
 import com.imanage.fileexplorer.R
 import com.imanage.fileexplorer.data.model.FileItem
+import com.imanage.fileexplorer.data.repository.VaultRepository
 import java.io.File
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -169,7 +170,7 @@ class VaultService : Service() {
                 if (!file.exists()) continue
 
                 val fileName = file.name
-                val totalBytes = file.length().coerceAtLeast(1L)
+                val totalBytes = VaultRepository.calculateTotalSize(file)
 
                 updateProgress(
                     VaultProgressState(
@@ -362,7 +363,7 @@ class VaultService : Service() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(message)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_vault)
             .setContentIntent(pendingOpenIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -399,7 +400,7 @@ class VaultService : Service() {
         val completionNotif = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(message)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_vault)
             .setContentIntent(pendingOpenIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
