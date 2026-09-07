@@ -13,8 +13,8 @@ android {
         applicationId = "com.imanage.fileexplorer"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -94,6 +94,13 @@ dependencies {
     
     // Archive Management (Universal Zip4j AES-256)
     implementation(libs.zip4j)
+
+    // Media3 ExoPlayer
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+
+    // EXIF Interface
+    implementation(libs.androidx.exifinterface)
     
     debugImplementation(libs.androidx.ui.tooling)
 }

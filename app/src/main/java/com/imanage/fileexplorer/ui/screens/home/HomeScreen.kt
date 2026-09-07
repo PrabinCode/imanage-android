@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +33,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.imanage.fileexplorer.data.model.FileItem
 import com.imanage.fileexplorer.data.model.FileType
 import com.imanage.fileexplorer.ui.components.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,6 +57,7 @@ fun HomeScreen(
     var itemToRename by remember { mutableStateOf<FileItem?>(null) }
     var itemForInfo by remember { mutableStateOf<FileItem?>(null) }
     var itemToDelete by remember { mutableStateOf<FileItem?>(null) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.toastMessage) {
         state.toastMessage?.let {
@@ -129,6 +132,23 @@ fun HomeScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = {
+                                if (!isPullRefreshing) {
+                                    isPullRefreshing = true
+                                    scope.launch {
+                                        try {
+                                            viewModel.loadData().join()
+                                        } finally {
+                                            delay(450)
+                                            isPullRefreshing = false
+                                        }
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        }
                         IconButton(onClick = onNavigateToSearch) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
@@ -142,13 +162,28 @@ fun HomeScreen(
                 )
             }
         ) { padding ->
-        LazyColumn(
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+            PullToRefreshBox(
+                isRefreshing = isPullRefreshing,
+                onRefresh = {
+                    isPullRefreshing = true
+                    scope.launch {
+                        try {
+                            viewModel.loadData().join()
+                        } finally {
+                            delay(450)
+                            isPullRefreshing = false
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
             // Storage Permission Warning Banner
             if (!state.isLoading && !state.permissionGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 item {
@@ -311,6 +346,7 @@ fun HomeScreen(
                 }
             }
         }
+    }
     }
 
     // Dialogs for Recent Files

@@ -37,6 +37,8 @@ class MainActivity : FragmentActivity() {
 
         val app = application as IManageApp
 
+        checkAndRequestNotificationPermission()
+
         setContent {
             IManageTheme {
                 val navController = rememberNavController()
@@ -64,6 +66,18 @@ class MainActivity : FragmentActivity() {
     override fun onPause() {
         super.onPause()
         AutoLockManager.onAppBackgrounded()
+    }
+
+    private fun checkAndRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
     }
 
     private fun checkAndRequestStoragePermissions() {

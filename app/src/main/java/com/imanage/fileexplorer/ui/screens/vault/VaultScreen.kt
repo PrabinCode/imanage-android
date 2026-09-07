@@ -53,7 +53,7 @@ fun VaultScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            viewModel.importUris(uris)
+            viewModel.importUris(context, uris)
         }
     }
 
@@ -144,105 +144,175 @@ fun VaultScreen(
             }
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (state.isLoading) {
+            // Live background task progress card
+            state.activeTask?.let { task ->
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFEC407A).copy(alpha = 0.12f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFFEC407A)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            val title = when (task.operation) {
+                                com.imanage.fileexplorer.data.service.VaultOperationType.ENCRYPT -> "Securing ${task.fileName}"
+                                com.imanage.fileexplorer.data.service.VaultOperationType.RESTORE -> "Restoring ${task.fileName}"
+                                com.imanage.fileexplorer.data.service.VaultOperationType.IMPORT -> "Importing ${task.fileName}"
+                            }
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${task.percent}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFEC407A)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (task.isIndeterminate) {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = Color(0xFFEC407A)
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { task.percent / 100f },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = Color(0xFFEC407A)
+                            )
+                        }
+                        if (task.totalBytes > 0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${FileItem.formatBytes(task.bytesProcessed)} of ${FileItem.formatBytes(task.totalBytes)}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (state.isLoading && state.activeTask == null) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
-            if (!state.isUnlocked) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (!state.isUnlocked) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
                         modifier = Modifier
-                            .size(96.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFEC407A).copy(alpha = 0.15f))
+                            .fillMaxSize()
+                            .padding(32.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(96.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEC407A).copy(alpha = 0.15f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = "Locked",
+                                tint = Color(0xFFEC407A),
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "Vault is Locked",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Files inside this vault are encrypted with hardware-wrapped AES-256 keys.",
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { showBiometricPrompt() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEC407A))
+                        ) {
+                            Icon(Icons.Default.Fingerprint, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Unlock Vault")
+                        }
+                    }
+                } else if (state.items.isEmpty()) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Lock,
-                            contentDescription = "Locked",
-                            tint = Color(0xFFEC407A),
-                            modifier = Modifier.size(48.dp)
+                            imageVector = Icons.Default.EnhancedEncryption,
+                            contentDescription = null,
+                            tint = Color(0xFFEC407A).copy(alpha = 0.5f),
+                            modifier = Modifier.size(72.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Your Vault is Empty",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Tap '+ Add Files to Vault' below, or select files in the file explorer and choose 'Move to Encrypted Vault'.",
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Text(
-                        text = "Vault is Locked",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Files inside this vault are encrypted with AES-256-GCM hardware keys.",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { showBiometricPrompt() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEC407A))
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Unlock Vault")
-                    }
-                }
-            } else if (state.items.isEmpty()) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.EnhancedEncryption,
-                        contentDescription = null,
-                        tint = Color(0xFFEC407A).copy(alpha = 0.5f),
-                        modifier = Modifier.size(72.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Your Vault is Empty",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Tap '+ Add Files to Vault' below, or select files in the file explorer and choose 'Move to Encrypted Vault'.",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(state.items, key = { it.id }) { item ->
-                        VaultItemCard(
-                            item = item,
-                            onPreview = {
-                                viewModel.previewItem(item) { decryptedTempFile ->
-                                    onOpenFile(decryptedTempFile.absolutePath)
-                                }
-                            },
-                            onRestore = { viewModel.restoreItem(item) },
-                            onDelete = { viewModel.deleteItem(item) }
-                        )
+                        items(state.items, key = { it.id }) { item ->
+                            VaultItemCard(
+                                item = item,
+                                onPreview = {
+                                    viewModel.previewItem(item) { decryptedTempFile ->
+                                        onOpenFile(decryptedTempFile.absolutePath)
+                                    }
+                                },
+                                onRestore = { viewModel.restoreItem(context, item) },
+                                onDelete = { viewModel.deleteItem(item) }
+                            )
+                        }
                     }
                 }
             }

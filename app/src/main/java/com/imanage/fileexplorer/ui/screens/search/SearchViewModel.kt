@@ -3,11 +3,13 @@ package com.imanage.fileexplorer.ui.screens.search
 import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.imanage.fileexplorer.IManageApp
 import com.imanage.fileexplorer.data.crypto.ShredderEngine
 import com.imanage.fileexplorer.data.model.FileItem
 import com.imanage.fileexplorer.data.repository.FileSystemRepository
 import com.imanage.fileexplorer.data.repository.TrashRepository
 import com.imanage.fileexplorer.data.repository.VaultRepository
+import com.imanage.fileexplorer.data.service.VaultService
 import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -73,11 +75,21 @@ class SearchViewModel(
     }
 
     fun moveToVault(item: FileItem) {
+        if (vaultRepository.isPathBusy(item.file.absolutePath)) {
+            _uiState.value = _uiState.value.copy(toastMessage = "File is already being moved to Safe Vault")
+            return
+        }
+
+        VaultService.startEncrypt(
+            context = IManageApp.instance,
+            paths = listOf(item.file.absolutePath),
+            shredOriginal = true
+        )
+        _uiState.value = _uiState.value.copy(
+            toastMessage = "Securing ${item.name} in Safe Vault... (Check notification)"
+        )
         viewModelScope.launch {
-            val result = vaultRepository.moveToVault(item.file, shredOriginal = true)
-            _uiState.value = _uiState.value.copy(
-                toastMessage = if (result.isSuccess) "Encrypted and moved ${item.name} to Safe Vault" else "Vault error: ${result.exceptionOrNull()?.message}"
-            )
+            delay(1200)
             onQueryChange(_uiState.value.query)
         }
     }

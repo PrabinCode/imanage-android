@@ -11,7 +11,10 @@ import com.imanage.fileexplorer.data.repository.FileSystemRepository
 import com.imanage.fileexplorer.data.repository.TagRepository
 import com.imanage.fileexplorer.data.repository.TrashRepository
 import com.imanage.fileexplorer.data.repository.VaultRepository
+import com.imanage.fileexplorer.data.service.VaultService
 import java.io.File
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,7 +81,16 @@ class ExplorerViewModel(
                 )
             }
         }
+        viewModelScope.launch {
+            VaultService.lastCompletedTimestamp.collectLatest { ts ->
+                if (ts > 0L) {
+                    loadCurrent()
+                }
+            }
+        }
     }
+
+    fun refresh(): Job = loadCurrent()
 
     fun navigateTo(path: String, title: String? = null) {
         val cleanTitle = title ?: File(path).name.ifEmpty { if (path == "/") "System Root (/)" else "Storage" }
@@ -97,7 +109,7 @@ class ExplorerViewModel(
         loadCategory(type)
     }
 
-    fun loadCategory(type: FileType) {
+    fun loadCategory(type: FileType): Job {
         _uiState.value = _uiState.value.copy(
             title = type.displayName,
             isCategoryMode = true,
@@ -107,44 +119,44 @@ class ExplorerViewModel(
             isLoading = true,
             errorMessage = null
         )
-        viewModelScope.launch {
+        return viewModelScope.launch {
             try {
                 val categoryFiles = fileSystemRepository.getCategoryFiles(type)
                 _uiState.value = _uiState.value.copy(
-                    files = categoryFiles,
-                    isLoading = false
+                    files = categoryFiles
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false,
                     errorMessage = e.message ?: "Failed to scan ${type.displayName} files"
                 )
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoading = false)
             }
         }
     }
 
-    fun loadDirectory(path: String) {
+    fun loadDirectory(path: String): Job {
         _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
-        viewModelScope.launch {
+        return viewModelScope.launch {
             try {
                 val files = fileSystemRepository.getDirectoryContents(path, _uiState.value.sortOption)
                 val bookmarked = _uiState.value.bookmarks.any { it.path == path }
                 _uiState.value = _uiState.value.copy(
                     files = files,
-                    isBookmarked = bookmarked,
-                    isLoading = false
+                    isBookmarked = bookmarked
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    isLoading = false,
                     errorMessage = e.message ?: "Failed to load directory"
                 )
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoading = false)
             }
         }
     }
 
-    fun loadCurrent() {
-        if (_uiState.value.isCategoryMode && _uiState.value.currentCategory != null) {
+    fun loadCurrent(): Job {
+        return if (_uiState.value.isCategoryMode && _uiState.value.currentCategory != null) {
             loadCategory(_uiState.value.currentCategory!!)
         } else {
             loadDirectory(_uiState.value.currentPath)
@@ -307,23 +319,23 @@ class ExplorerViewModel(
     }
 
     fun moveItemsToVault(items: List<FileItem>) {
-        viewModelScope.launch {
-            var successCount = 0
-            var lastError: String? = null
-            for (item in items) {
-                val result = vaultRepository.moveToVault(item.file, shredOriginal = true)
-                if (result.isSuccess) {
-                    successCount++
-                } else {
-                    lastError = result.exceptionOrNull()?.message ?: "Encryption failed"
-                }
-            }
-            clearSelection()
-            loadCurrent()
-            _uiState.value = _uiState.value.copy(
-                toastMessage = if (successCount > 0) "Encrypted and moved $successCount item(s) to Safe Vault" else "Vault error: $lastError"
-            )
+        if (items.isEmpty()) return
+        val validItems = items.filter { !vaultRepository.isPathBusy(it.file.absolutePath) }
+        if (validItems.isEmpty()) {
+            _uiState.value = _uiState.value.copy(toastMessage = "Selected items are already being moved to Safe Vault")
+            return
         }
+
+        clearSelection()
+        VaultService.startEncrypt(
+            context = IManageApp.instance,
+            paths = validItems.map { it.file.absolutePath },
+            shredOriginal = true
+        )
+        _uiState.value = _uiState.value.copy(
+            toastMessage = "Securing ${validItems.size} item(s) in Safe Vault... (Check notification)"
+        )
+        loadCurrent()
     }
 
     fun zipItems(items: List<FileItem>, zipName: String = "Archive.zip", password: String? = null) {

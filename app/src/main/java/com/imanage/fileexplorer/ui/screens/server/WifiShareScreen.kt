@@ -1,17 +1,22 @@
 package com.imanage.fileexplorer.ui.screens.server
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -39,6 +44,24 @@ fun WifiShareScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val serverState by LocalWifiServer.serverState.collectAsState()
+    val prefs = remember { context.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE) }
+    var preventSleep by remember {
+        mutableStateOf(prefs.getBoolean("wifi_share_prevent_sleep", true))
+    }
+
+    // Keep screen awake while server is running and preventSleep is enabled
+    DisposableEffect(preventSleep, serverState.isRunning) {
+        val activity = context as? Activity
+        if (preventSleep && serverState.isRunning) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -57,6 +80,7 @@ fun WifiShareScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp)
         ) {
             Spacer(modifier = Modifier.height(16.dp))
@@ -208,10 +232,71 @@ fun WifiShareScreen(
                             }
                         }
                     }
+
+                    // Keep Phone Awake Card
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (preventSleep) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                                        )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.BrightnessHigh,
+                                        contentDescription = null,
+                                        tint = if (preventSleep) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "3. Keep Phone Awake",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Prevent screen lock & sleep during transfer",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = preventSleep,
+                                onCheckedChange = { isChecked ->
+                                    preventSleep = isChecked
+                                    prefs.edit().putBoolean("wifi_share_prevent_sleep", isChecked).apply()
+                                    LocalWifiServer.setPreventSleep(context, isChecked)
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Start / Stop Button
             Button(

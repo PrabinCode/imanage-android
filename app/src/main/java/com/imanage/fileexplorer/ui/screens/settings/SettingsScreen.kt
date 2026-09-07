@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.imanage.fileexplorer.data.crypto.PinCryptoHelper
 import com.imanage.fileexplorer.data.root.RootShellProvider
+import com.imanage.fileexplorer.data.update.AppUpdateInfo
+import com.imanage.fileexplorer.data.update.UpdateManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,6 +56,9 @@ fun SettingsScreen(
         mutableStateOf(prefs.getBoolean("root_access_enabled", false))
     }
     var showTimeoutMenu by remember { mutableStateOf(false) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var updateInfoDialog by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    val versionInfo = remember { UpdateManager.getCurrentVersion(context) }
 
     Scaffold(
         topBar = {
@@ -410,6 +415,72 @@ fun SettingsScreen(
                 }
             }
 
+            // Check for Updates
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isCheckingUpdate) {
+                            isCheckingUpdate = true
+                            scope.launch {
+                                val result = UpdateManager.checkForUpdates(context)
+                                isCheckingUpdate = false
+                                result.fold(
+                                    onSuccess = { info ->
+                                        if (info.isUpdateAvailable) {
+                                            updateInfoDialog = info
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "You're using the latest version (v${versionInfo.first})",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
+                                    onFailure = { error ->
+                                        Toast.makeText(
+                                            context,
+                                            "Could not check for updates: ${error.localizedMessage ?: "Offline"}",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                )
+                            }
+                        }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Check for Updates", fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Installed: v${versionInfo.first} (Build ${versionInfo.second})",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (isCheckingUpdate) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Zero Telemetry Guarantee Card
             item {
                 Card(
@@ -425,13 +496,87 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "This build contains zero analytics SDKs, zero crash trackers, and zero internet permissions. Your files stay strictly on your device.",
+                            "This build contains zero analytics SDKs, zero crash trackers, and zero third-party telemetry. Your files stay strictly on your device.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
             }
+        }
+
+        // In-App Update Dialog
+        if (updateInfoDialog != null) {
+            val info = updateInfoDialog!!
+            AlertDialog(
+                onDismissRequest = {
+                    if (!info.isMandatory) updateInfoDialog = null
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.NewReleases,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                title = {
+                    Text("Update Available: v${info.versionName}")
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (info.releaseDate.isNotBlank()) {
+                            Text(
+                                text = "Released: ${info.releaseDate}",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (info.releaseNotes.isNotEmpty()) {
+                            Text(
+                                text = "What's New:",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                            info.releaseNotes.forEach { note ->
+                                Row(modifier = Modifier.padding(start = 4.dp)) {
+                                    Text("• ", fontWeight = FontWeight.Bold)
+                                    Text(note, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            UpdateManager.startDownload(context, info)
+                            updateInfoDialog = null
+                            Toast.makeText(context, "Initiating update...", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Text("Update Now")
+                    }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                UpdateManager.openInBrowser(
+                                    context,
+                                    info.fallbackUrl.ifBlank { "https://pcshrestha.com.np/imanage" }
+                                )
+                            }
+                        ) {
+                            Text("Website")
+                        }
+                        if (!info.isMandatory) {
+                            TextButton(onClick = { updateInfoDialog = null }) {
+                                Text("Later")
+                            }
+                        }
+                    }
+                }
+            )
         }
     }
 }

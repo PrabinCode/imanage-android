@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Environment
+import android.os.PowerManager
 import com.imanage.fileexplorer.data.model.FileItem
 import java.io.*
 import java.net.*
@@ -35,9 +36,64 @@ object LocalWifiServer {
     private var isServerActive = false
     private var currentPin = ""
     private var appContext: Context? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     private val _serverState = MutableStateFlow(ServerState())
     val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
+
+    fun acquireLocks(context: Context) {
+        try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (wakeLock == null) {
+                wakeLock = powerManager?.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "IManage:WifiShareWakeLock"
+                )?.apply {
+                    setReferenceCounted(false)
+                    acquire(12 * 60 * 60 * 1000L)
+                }
+            }
+
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            if (wifiLock == null) {
+                @Suppress("DEPRECATION")
+                wifiLock = wifiManager?.createWifiLock(
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    } else {
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    },
+                    "IManage:WifiShareWifiLock"
+                )?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun releaseLocks() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+            wakeLock = null
+
+            wifiLock?.let {
+                if (it.isHeld) it.release()
+            }
+            wifiLock = null
+        } catch (_: Exception) {}
+    }
+
+    fun setPreventSleep(context: Context, enabled: Boolean) {
+        if (enabled && isServerActive) {
+            acquireLocks(context)
+        } else {
+            releaseLocks()
+        }
+    }
 
     suspend fun startServer(context: Context, port: Int = DEFAULT_PORT): Result<String> = withContext(Dispatchers.IO) {
         if (isServerActive) {
@@ -68,6 +124,15 @@ object LocalWifiServer {
                 sessionPin = currentPin
             )
 
+            val prefs = context.getSharedPreferences("imanage_prefs", Context.MODE_PRIVATE)
+            val preventSleep = prefs.getBoolean("wifi_share_prevent_sleep", true)
+            if (preventSleep) {
+                acquireLocks(context)
+            }
+
+            // Start persistent foreground service so Android does not suspend network socket in background or when screen is locked
+            com.imanage.fileexplorer.data.service.WifiServerService.start(context)
+
             threadPool.execute {
                 while (isServerActive && !socket.isClosed) {
                     try {
@@ -82,12 +147,16 @@ object LocalWifiServer {
             Result.success(displayIp)
         } catch (e: Exception) {
             isServerActive = false
+            releaseLocks()
+            appContext?.let { com.imanage.fileexplorer.data.service.WifiServerService.stop(it) }
             Result.failure(e)
         }
     }
 
     suspend fun stopServer() = withContext(Dispatchers.IO) {
         isServerActive = false
+        releaseLocks()
+        appContext?.let { com.imanage.fileexplorer.data.service.WifiServerService.stop(it) }
         try {
             serverSocket?.close()
         } catch (e: Exception) { }

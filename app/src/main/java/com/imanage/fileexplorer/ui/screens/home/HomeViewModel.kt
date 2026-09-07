@@ -13,12 +13,17 @@ import com.imanage.fileexplorer.data.repository.BookmarkRepository
 import com.imanage.fileexplorer.data.repository.FileSystemRepository
 import com.imanage.fileexplorer.data.repository.TrashRepository
 import com.imanage.fileexplorer.data.repository.VaultRepository
+import com.imanage.fileexplorer.data.service.VaultService
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class HomeUiState(
     val storageVolumes: List<StorageVolumeInfo> = emptyList(),
@@ -49,45 +54,57 @@ class HomeViewModel(
                 _uiState.value = _uiState.value.copy(bookmarks = bms)
             }
         }
-    }
-
-    fun loadData() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
-
-            val isStorageManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
-            } else {
-                true
-            }
-
-            val volumes = fileSystemRepository.getStorageVolumes()
-
-            val recents = mutableListOf<FileItem>()
-            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val dcimDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
-            val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-
-            fun collectRecent(dir: File) {
-                if (dir.exists()) {
-                    dir.walkTopDown().maxDepth(2).filter { it.isFile && !it.name.startsWith(".") }.forEach {
-                        recents.add(FileItem.fromFile(it))
-                    }
+            VaultService.lastCompletedTimestamp.collectLatest { ts ->
+                if (ts > 0L) {
+                    loadData()
                 }
             }
+        }
+    }
 
-            collectRecent(downloadDir)
-            collectRecent(dcimDir)
-            collectRecent(docsDir)
+    fun loadData(): Job = viewModelScope.launch {
+        _uiState.value = _uiState.value.copy(isLoading = true)
+        try {
+            withContext(Dispatchers.IO) {
+                val isStorageManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    Environment.isExternalStorageManager()
+                } else {
+                    true
+                }
 
-            val sortedRecents = recents.distinctBy { it.path }.sortedByDescending { it.lastModified }.take(20)
+                val volumes = fileSystemRepository.getStorageVolumes()
 
-            _uiState.value = _uiState.value.copy(
-                storageVolumes = volumes,
-                recentFiles = sortedRecents,
-                isLoading = false,
-                permissionGranted = isStorageManager
-            )
+                val recents = mutableListOf<FileItem>()
+                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val dcimDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
+                val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+
+                fun collectRecent(dir: File) {
+                    try {
+                        if (dir.exists()) {
+                            dir.walkTopDown().maxDepth(2).filter { it.isFile && !it.name.startsWith(".") }.forEach {
+                                recents.add(FileItem.fromFile(it))
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                collectRecent(downloadDir)
+                collectRecent(dcimDir)
+                collectRecent(docsDir)
+
+                val sortedRecents = recents.distinctBy { it.path }.sortedByDescending { it.lastModified }.take(20)
+
+                _uiState.value = _uiState.value.copy(
+                    storageVolumes = volumes,
+                    recentFiles = sortedRecents,
+                    permissionGranted = isStorageManager
+                )
+            }
+        } catch (_: Exception) {
+        } finally {
+            _uiState.value = _uiState.value.copy(isLoading = false)
         }
     }
 
@@ -106,13 +123,20 @@ class HomeViewModel(
     }
 
     fun moveToVault(item: FileItem) {
-        viewModelScope.launch {
-            val result = vaultRepository.moveToVault(item.file, shredOriginal = true)
-            _uiState.value = _uiState.value.copy(
-                toastMessage = if (result.isSuccess) "Encrypted and moved ${item.name} to Safe Vault" else "Vault error: ${result.exceptionOrNull()?.message}"
-            )
-            loadData()
+        if (vaultRepository.isPathBusy(item.file.absolutePath)) {
+            _uiState.value = _uiState.value.copy(toastMessage = "File is already being moved to Safe Vault")
+            return
         }
+
+        VaultService.startEncrypt(
+            context = IManageApp.instance,
+            paths = listOf(item.file.absolutePath),
+            shredOriginal = true
+        )
+        _uiState.value = _uiState.value.copy(
+            toastMessage = "Securing ${item.name} in Safe Vault... (Check notification)"
+        )
+        loadData()
     }
 
     fun renameFile(item: FileItem, newName: String) {

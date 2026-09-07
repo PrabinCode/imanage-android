@@ -59,6 +59,12 @@ interface VaultDao {
 
     @Query("SELECT * FROM vault_items WHERE id = :id")
     suspend fun getById(id: Long): VaultEntity?
+
+    @Query("SELECT * FROM vault_items WHERE originalPath = :path LIMIT 1")
+    suspend fun getItemByOriginalPath(path: String): VaultEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM vault_items WHERE originalPath = :path)")
+    suspend fun isPathInVault(path: String): Boolean
 }
 
 @Dao

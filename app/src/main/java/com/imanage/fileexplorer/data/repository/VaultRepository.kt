@@ -27,20 +27,36 @@ class VaultRepository(
     private val vaultDir: File get() = File(context.filesDir, ".imanage_vault").apply { mkdirs() }
     private val tempDecryptedDir: File get() = File(context.cacheDir, ".vault_temp").apply { mkdirs() }
 
+    private val inFlightPaths = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val inFlightVaultIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+
     val vaultItems: Flow<List<VaultEntity>> = vaultDao.getAllVaultItems()
+
+    fun isPathBusy(path: String): Boolean = inFlightPaths.contains(path)
 
     suspend fun moveToVault(
         originalFile: File,
         shredOriginal: Boolean = true,
         onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): Result<VaultEntity> = withContext(Dispatchers.IO) {
+        val originalPath = originalFile.absolutePath
+
+        // Concurrency guard: prevent duplicate parallel encryption of the same file
+        if (!inFlightPaths.add(originalPath)) {
+            return@withContext Result.failure(IllegalStateException("File is already being moved to Safe Vault: ${originalFile.name}"))
+        }
+
         try {
             if (!originalFile.exists()) {
-                return@withContext Result.failure(IllegalArgumentException("File does not exist: ${originalFile.absolutePath}"))
+                return@withContext Result.failure(IllegalArgumentException("File does not exist: $originalPath"))
+            }
+
+            // DB deduplication: prevent duplicate rows if already in Safe Vault
+            if (vaultDao.isPathInVault(originalPath)) {
+                return@withContext Result.failure(IllegalStateException("File is already in Safe Vault: ${originalFile.name}"))
             }
 
             val isDir = originalFile.isDirectory
-            val originalPath = originalFile.absolutePath
             val originalName = originalFile.name
             val encFileName = "${UUID.randomUUID()}.enc"
             val destEncFile = File(vaultDir, encFileName)
@@ -89,7 +105,7 @@ class VaultRepository(
             val savedEntity = entity.copy(id = id)
 
             if (shredOriginal) {
-                ShredderEngine.shred(originalFile, passes = 1, context = context)
+                ShredderEngine.quickSecureWipe(originalFile, context = context)
             }
 
             try {
@@ -99,10 +115,15 @@ class VaultRepository(
             Result.success(savedEntity)
         } catch (e: Exception) {
             Result.failure(e)
+        } finally {
+            inFlightPaths.remove(originalPath)
         }
     }
 
-    suspend fun importUriToVault(uri: Uri): Result<VaultEntity> = withContext(Dispatchers.IO) {
+    suspend fun importUriToVault(
+        uri: Uri,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> }
+    ): Result<VaultEntity> = withContext(Dispatchers.IO) {
         try {
             var fileName = "Imported_${System.currentTimeMillis()}"
             var fileSize = 0L
@@ -123,7 +144,7 @@ class VaultRepository(
                 }
             }
 
-            val result = moveToVault(tempImportFile, shredOriginal = true)
+            val result = moveToVault(tempImportFile, shredOriginal = true, onProgress = onProgress)
             result
         } catch (e: Exception) {
             Result.failure(e)
@@ -135,6 +156,10 @@ class VaultRepository(
         targetDirectory: File? = null,
         onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): Result<File> = withContext(Dispatchers.IO) {
+        if (!inFlightVaultIds.add(vaultEntity.id)) {
+            return@withContext Result.failure(IllegalStateException("Item is already being restored: ${vaultEntity.originalFileName}"))
+        }
+
         try {
             val encFile = File(vaultDir, vaultEntity.encryptedFileName)
             val originalParent = File(vaultEntity.originalPath).parentFile
@@ -177,6 +202,8 @@ class VaultRepository(
             }
         } catch (e: Exception) {
             Result.failure(e)
+        } finally {
+            inFlightVaultIds.remove(vaultEntity.id)
         }
     }
 
@@ -200,7 +227,7 @@ class VaultRepository(
     suspend fun deleteVaultItem(vaultEntity: VaultEntity): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val encFile = File(vaultDir, vaultEntity.encryptedFileName)
-            ShredderEngine.shred(encFile, passes = 1, context = context)
+            ShredderEngine.quickSecureWipe(encFile, context = context)
             vaultDao.deleteById(vaultEntity.id)
             Result.success(true)
         } catch (e: Exception) {

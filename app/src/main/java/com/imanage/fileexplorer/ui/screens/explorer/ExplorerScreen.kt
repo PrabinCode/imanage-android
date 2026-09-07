@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +28,7 @@ import androidx.core.content.FileProvider
 import com.imanage.fileexplorer.data.model.*
 import com.imanage.fileexplorer.ui.components.*
 import java.io.File
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,6 +62,7 @@ fun ExplorerScreen(
     var showBatchRenameDialog by remember { mutableStateOf(false) }
     var itemsToDelete by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.toastMessage) {
         state.toastMessage?.let {
@@ -169,6 +174,23 @@ fun ExplorerScreen(
                                 contentDescription = "Toggle View"
                             )
                         }
+                        IconButton(
+                            onClick = {
+                                if (!isPullRefreshing) {
+                                    isPullRefreshing = true
+                                    scope.launch {
+                                        try {
+                                            viewModel.refresh().join()
+                                        } finally {
+                                            delay(450)
+                                            isPullRefreshing = false
+                                        }
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        }
                         IconButton(onClick = { showSortMenu = true }) {
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
                         }
@@ -276,133 +298,151 @@ fun ExplorerScreen(
                 )
             }
 
-            if (state.isLoading) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    CircularProgressIndicator()
-                }
-            } else if (state.files.isEmpty()) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Outlined.FolderOpen,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = if (state.isCategoryMode) "No ${state.title} files found" else "This folder is empty",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            PullToRefreshBox(
+                isRefreshing = isPullRefreshing,
+                onRefresh = {
+                    isPullRefreshing = true
+                    scope.launch {
+                        try {
+                            viewModel.refresh().join()
+                        } finally {
+                            delay(450)
+                            isPullRefreshing = false
+                        }
                     }
-                }
-            } else if (state.viewMode == ViewMode.GRID) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(state.files, key = { it.path }) { item ->
-                        val isSelected = state.selectedFiles.contains(item.path)
-                        FileGridItem(
-                            item = item,
-                            isSelectionMode = state.isSelectionMode,
-                            isSelected = isSelected,
-                            onClick = {
-                                if (state.isSelectionMode) {
+                },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (state.isLoading && state.files.isEmpty()) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else if (state.files.isEmpty()) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Outlined.FolderOpen,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (state.isCategoryMode) "No ${state.title} files found" else "This folder is empty",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else if (state.viewMode == ViewMode.GRID) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        contentPadding = PaddingValues(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(state.files, key = { it.path }) { item ->
+                            val isSelected = state.selectedFiles.contains(item.path)
+                            FileGridItem(
+                                item = item,
+                                isSelectionMode = state.isSelectionMode,
+                                isSelected = isSelected,
+                                onClick = {
+                                    if (state.isSelectionMode) {
+                                        viewModel.toggleSelection(item.path)
+                                    } else if (item.isDirectory) {
+                                        viewModel.navigateTo(item.path, item.name)
+                                    } else {
+                                        onOpenFile(item.path)
+                                    }
+                                },
+                                onLongClick = {
                                     viewModel.toggleSelection(item.path)
-                                } else if (item.isDirectory) {
-                                    viewModel.navigateTo(item.path, item.name)
-                                } else {
-                                    onOpenFile(item.path)
                                 }
-                            },
-                            onLongClick = {
-                                viewModel.toggleSelection(item.path)
-                            }
-                        )
+                            )
+                        }
                     }
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(state.files, key = { it.path }) { item ->
-                        val isSelected = state.selectedFiles.contains(item.path)
-                        val isArchive = item.extension.equals("zip", ignoreCase = true) || item.extension.equals("tgz", ignoreCase = true) || item.name.endsWith(".tar.gz", ignoreCase = true)
-                        
-                        FileListItem(
-                            item = item,
-                            isSelectionMode = state.isSelectionMode,
-                            isSelected = isSelected,
-                            tagColorHex = state.tagsMap[item.path],
-                            onClick = {
-                                if (state.isSelectionMode) {
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(state.files, key = { it.path }) { item ->
+                            val isSelected = state.selectedFiles.contains(item.path)
+                            val isArchive = item.extension.equals("zip", ignoreCase = true) || item.extension.equals("tgz", ignoreCase = true) || item.name.endsWith(".tar.gz", ignoreCase = true)
+                            
+                            FileListItem(
+                                item = item,
+                                isSelectionMode = state.isSelectionMode,
+                                isSelected = isSelected,
+                                tagColorHex = state.tagsMap[item.path],
+                                onClick = {
+                                    if (state.isSelectionMode) {
+                                        viewModel.toggleFileSelection(item.path)
+                                    } else if (item.isDirectory) {
+                                        viewModel.navigateTo(item.path, item.name)
+                                    } else if (isArchive) {
+                                        archiveToExtract = item
+                                    } else {
+                                        onOpenFile(item.path)
+                                    }
+                                },
+                                onLongClick = {
                                     viewModel.toggleFileSelection(item.path)
-                                } else if (item.isDirectory) {
-                                    viewModel.navigateTo(item.path, item.name)
-                                } else if (isArchive) {
-                                    archiveToExtract = item
-                                } else {
-                                    onOpenFile(item.path)
+                                },
+                                onRenameClick = { itemToRename = item },
+                                onTagClick = { itemForTag = item },
+                                onDeleteClick = {
+                                    itemsToDelete = listOf(item)
+                                    showDeleteConfirmDialog = true
+                                },
+                                onShredClick = {
+                                    itemsToDelete = listOf(item)
+                                    showDeleteConfirmDialog = true
+                                },
+                                onVaultClick = {
+                                    viewModel.moveItemsToVault(listOf(item))
+                                },
+                                onZipClick = {
+                                    itemsToZip = listOf(item)
+                                },
+                                onInfoClick = { itemForInfo = item },
+                                onShareClick = {
+                                    try {
+                                        val uri = FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            item.file
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "*/*"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share ${item.name}"))
+                                    } catch (e: Exception) { }
+                                },
+                                onOpenWithClick = {
+                                    try {
+                                        val uri = FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            item.file
+                                        )
+                                        val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(item.extension.lowercase()) ?: "*/*"
+                                        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(uri, mimeType)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(viewIntent, "Open ${item.name} with"))
+                                    } catch (e: Exception) { }
                                 }
-                            },
-                            onLongClick = {
-                                viewModel.toggleFileSelection(item.path)
-                            },
-                            onRenameClick = { itemToRename = item },
-                            onTagClick = { itemForTag = item },
-                            onDeleteClick = {
-                                itemsToDelete = listOf(item)
-                                showDeleteConfirmDialog = true
-                            },
-                            onShredClick = {
-                                itemsToDelete = listOf(item)
-                                showDeleteConfirmDialog = true
-                            },
-                            onVaultClick = {
-                                viewModel.moveItemsToVault(listOf(item))
-                            },
-                            onZipClick = {
-                                itemsToZip = listOf(item)
-                            },
-                            onInfoClick = { itemForInfo = item },
-                            onShareClick = {
-                                try {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        item.file
-                                    )
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "*/*"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share ${item.name}"))
-                                } catch (e: Exception) { }
-                            },
-                            onOpenWithClick = {
-                                try {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        item.file
-                                    )
-                                    val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(item.extension.lowercase()) ?: "*/*"
-                                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, mimeType)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(viewIntent, "Open ${item.name} with"))
-                                } catch (e: Exception) { }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
